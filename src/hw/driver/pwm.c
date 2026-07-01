@@ -102,31 +102,33 @@ void pwmStart(void)
   pwmSetDuty(0.5f, 0.5f, 0.5f);
 
   htim1.Instance->CCER |= (TIM_CCER_CC1E  | TIM_CCER_CC2E  | TIM_CCER_CC3E |
-                 TIM_CCER_CC1NE | TIM_CCER_CC2NE | TIM_CCER_CC3NE);
+                           TIM_CCER_CC1NE | TIM_CCER_CC2NE | TIM_CCER_CC3NE);
 
   __HAL_TIM_ENABLE(&htim1);
 }
 
-void pwmEnableOutput(TIM_HandleTypeDef *htim)
-{
-  if (IS_TIM_BREAK_INSTANCE(htim->Instance) != RESET)
-  {
-    /* Enable the main output */
-    __HAL_TIM_MOE_ENABLE(htim);
-  }
-
-}
-
 void pwmStop(void)
 {
+  pwmDisableOutput();
 
+  htim1.Instance->CCER &= ~(TIM_CCER_CC1E  | TIM_CCER_CC2E  | TIM_CCER_CC3E |
+                            TIM_CCER_CC1NE | TIM_CCER_CC2NE | TIM_CCER_CC3NE);
+
+  __HAL_TIM_DISABLE(&htim1);
 }
+
+void pwmEnableOutput(void)
+{
+  __HAL_TIM_MOE_ENABLE(&htim1);
+}
+
 void pwmDisableOutput(void)
 {
-
+  __HAL_TIM_MOE_DISABLE(&htim1);
 }
 void pwmSetDuty(float duty_u, float duty_v, float duty_w)
 {
+  uint32_t ccr_u, ccr_v, ccr_w;
 
 }
 
