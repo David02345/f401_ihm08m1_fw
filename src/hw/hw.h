@@ -10,6 +10,7 @@
 
 
 #include "pwm.h"
+#include "foc.h"
 #include "hw_def.h"
 #include "led.h"
 #include "uart.h"

@@ -20,5 +20,9 @@ void hwInit(void)
   usbInit();
   uartInit();
   flashInit();
+
+#ifdef _USE_MOTOR_FOC
   pwmInit();
+  focInit();
+#endif
 }

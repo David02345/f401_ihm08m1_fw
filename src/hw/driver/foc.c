@@ -108,10 +108,11 @@ void focGenerateSPWM(float valpha, float vbeta, float vbus, foc_duty_t *duty)
 {
   foc_abc_t v_abc;
 
-  if ((duty == NULL) || (vbus <= 0.0f))
+  if (duty == NULL)
   {
     return;
   }
+
   if (vbus <= 0.0f)
   {
     duty->u = 0.5f;
@@ -153,7 +154,7 @@ void focRunOpenLoopVoltage(float vd, float vq, float theta_e, float vbus, foc_du
 
   focInvPark(v_dq.d, v_dq.q, theta_e, &v_ab);
 
-#if   _USE_FOC_SVPWM
+#ifdef   _USE_FOC_SVPWM
   svpwmGenerate(v_ab.alpha, v_ab.beta, vbus, duty);
 #else
   focGenerateSPWM(v_ab.alpha, v_ab.beta, vbus, duty);

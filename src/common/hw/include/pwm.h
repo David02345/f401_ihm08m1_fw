@@ -16,6 +16,4 @@ void pwmStop(void);
 void pwmEnableOutput(void);
 void pwmDisableOutput(void);
 void pwmSetDuty(float duty_u, float duty_v, float duty_w);
-void HAL_TIM_MspPostInit(TIM_HandleTypeDef* timHandle);
-void TIM_CCxNChannelCmd(TIM_TypeDef *TIMx, uint32_t Channel, uint32_t ChannelNState);
 #endif /* SRC_COMMON_HW_INCLUDE_PWM_H_ */

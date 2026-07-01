@@ -12,6 +12,7 @@ TIM_ClockConfigTypeDef sClockSourceConfig = {0};
 TIM_MasterConfigTypeDef sMasterConfig = {0};
 TIM_OC_InitTypeDef sConfigOC = {0};
 TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef* timHandle);
 
 
 bool pwmInit(void)
