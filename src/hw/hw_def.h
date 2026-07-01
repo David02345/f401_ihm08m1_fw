@@ -16,7 +16,7 @@
 #define _USE_MOTOR_FOC
 //#define _USE_MOTOR_SIXSTEP
 //#define _USE_FOC_SVPWM
-
+#define _USE_FOC_SPWM
 
 
 #define _USE_HW_USB

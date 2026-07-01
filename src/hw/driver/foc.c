@@ -154,10 +154,14 @@ void focRunOpenLoopVoltage(float vd, float vq, float theta_e, float vbus, foc_du
 
   focInvPark(v_dq.d, v_dq.q, theta_e, &v_ab);
 
-#ifdef   _USE_FOC_SVPWM
+#if defined(_USE_FOC_SVPWM)
   svpwmGenerate(v_ab.alpha, v_ab.beta, vbus, duty);
-#else
+#elif defined (_USE_FOC_SPWM)
   focGenerateSPWM(v_ab.alpha, v_ab.beta, vbus, duty);
+#else
+  duty->u = 0.5f;
+  duty->v = 0.5f;
+  duty->w = 0.5f;
 
 #endif
 }
