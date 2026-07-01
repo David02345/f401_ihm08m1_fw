@@ -21,7 +21,7 @@ bool pwmInit(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 0;
   htim1.Init.CounterMode = TIM_COUNTERMODE_CENTERALIGNED1;
-  htim1.Init.Period = 2099;
+  htim1.Init.Period = PWM_ARR;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -52,11 +52,11 @@ bool pwmInit(void)
 
 
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 1049;
+  sConfigOC.Pulse = PWM_INIT_PULSE;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_LOW;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_SET;
   sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
   {
@@ -78,7 +78,7 @@ bool pwmInit(void)
   sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
   sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
   sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-  sBreakDeadTimeConfig.DeadTime = 80;
+  sBreakDeadTimeConfig.DeadTime = PWM_DEADTIME;
   sBreakDeadTimeConfig.BreakState = TIM_BREAK_ENABLE;
   sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_LOW;
   sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
@@ -126,14 +126,42 @@ void pwmDisableOutput(void)
 {
   __HAL_TIM_MOE_DISABLE(&htim1);
 }
+
+
+static uint32_t pwmDutyToCCR(float duty)
+{
+  uint32_t arr = PWM_ARR;
+  uint32_t ccr;
+
+  if(duty > 1.0f)
+  {
+    duty = 1.0f;
+  }
+  if(duty < 0.0f)
+  {
+    duty = 0.0f;
+  }
+  ccr = (uint32_t)((float)(arr + 1) * duty);
+
+  if (ccr > PWM_ARR)
+  {
+    ccr = PWM_ARR;
+  }
+
+  return ccr;
+}
 void pwmSetDuty(float duty_u, float duty_v, float duty_w)
 {
   uint32_t ccr_u, ccr_v, ccr_w;
 
+  ccr_u = pwmDutyToCCR(duty_u);
+  ccr_v = pwmDutyToCCR(duty_v);
+  ccr_w = pwmDutyToCCR(duty_w);
+
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, ccr_u);
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, ccr_v);
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, ccr_w);
 }
-
-
-
 
 
 
@@ -192,18 +220,4 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef* timHandle)
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   }
-
-}
-
-void TIM_CCxNChannelCmd(TIM_TypeDef *TIMx, uint32_t Channel, uint32_t ChannelNState)
-{
-  uint32_t tmp;
-
-  tmp = TIM_CCER_CC1NE << (Channel & 0xFU); /* 0xFU = 15 bits max shift */
-
-  /* Reset the CCxNE Bit */
-  TIMx->CCER &=  ~tmp;
-
-  /* Set or reset the CCxNE Bit */
-  TIMx->CCER |= (uint32_t)(ChannelNState << (Channel & 0xFU)); /* 0xFU = 15 bits max shift */
 }

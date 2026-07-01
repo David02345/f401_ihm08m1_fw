@@ -13,7 +13,7 @@
 bool pwmInit(void);
 void pwmStart(void);
 void pwmStop(void);
-void pwmEnableOutput(TIM_HandleTypeDef *htim);
+void pwmEnableOutput(void);
 void pwmDisableOutput(void);
 void pwmSetDuty(float duty_u, float duty_v, float duty_w);
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef* timHandle);

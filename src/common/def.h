@@ -14,8 +14,19 @@
 #include <stdarg.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 
 
+#define PWM_ARR          2099
+#define PWM_DEADTIME       80
+#define PWM_INIT_PULSE   1049
+
+#define VBUS               24
+#define VLIMIT          13.86
+
+#define GEAR_RATIO         25
+#define GEAR_EFFICIENCY  0.94
+#define POLES               8
 
 #define _DEF_LED1           0
 #define _DEF_LED2           1
