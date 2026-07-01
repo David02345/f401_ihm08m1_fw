@@ -1,21 +1,22 @@
 /*
- * tim.c
+ * pwm.c
  *
  *  Created on: 2026. 6. 30.
  *      Author: YDG
  */
-#include "tim.h"
+#include "pwm.h"
 
 TIM_HandleTypeDef htim1;
+
 TIM_ClockConfigTypeDef sClockSourceConfig = {0};
 TIM_MasterConfigTypeDef sMasterConfig = {0};
 TIM_OC_InitTypeDef sConfigOC = {0};
 TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
 
 
-bool timInit(void)
+bool pwmInit(void)
 {
-  int ret = true;
+  bool ret = true;
 
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 0;
@@ -28,22 +29,28 @@ bool timInit(void)
   if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
   {
     Error_Handler();
+    ret = false;
   }
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
   if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
   {
     Error_Handler();
+    ret = false;
   }
   if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
   {
     Error_Handler();
+    ret = false;
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
   {
     Error_Handler();
+    ret = false;
   }
+
+
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
   sConfigOC.Pulse = 1049;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
@@ -54,15 +61,20 @@ bool timInit(void)
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
+    ret = false;
   }
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
+    ret = false;
   }
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
   {
     Error_Handler();
+    ret = false;
   }
+
+
   sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
   sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
   sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
@@ -73,22 +85,39 @@ bool timInit(void)
   if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
   {
     Error_Handler();
+    ret = false;
   }
 
   HAL_TIM_MspPostInit(&htim1);
+
+  pwmSetDuty(0.5f, 0.5f, 0.5f);
+  pwmDisableOutput();
 
   return ret;
 }
 
 void pwmStart(void)
 {
+  pwmDisableOutput();
+  pwmSetDuty(0.5f, 0.5f, 0.5f);
 
+  htim1.Instance->CCER |= (TIM_CCER_CC1E  | TIM_CCER_CC2E  | TIM_CCER_CC3E |
+                 TIM_CCER_CC1NE | TIM_CCER_CC2NE | TIM_CCER_CC3NE);
+
+  __HAL_TIM_ENABLE(&htim1);
 }
-void pwmStop(void)
+
+void pwmEnableOutput(TIM_HandleTypeDef *htim)
 {
+  if (IS_TIM_BREAK_INSTANCE(htim->Instance) != RESET)
+  {
+    /* Enable the main output */
+    __HAL_TIM_MOE_ENABLE(htim);
+  }
 
 }
-void pwmEnableOutput(void)
+
+void pwmStop(void)
 {
 
 }
@@ -162,4 +191,17 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef* timHandle)
 
   }
 
+}
+
+void TIM_CCxNChannelCmd(TIM_TypeDef *TIMx, uint32_t Channel, uint32_t ChannelNState)
+{
+  uint32_t tmp;
+
+  tmp = TIM_CCER_CC1NE << (Channel & 0xFU); /* 0xFU = 15 bits max shift */
+
+  /* Reset the CCxNE Bit */
+  TIMx->CCER &=  ~tmp;
+
+  /* Set or reset the CCxNE Bit */
+  TIMx->CCER |= (uint32_t)(ChannelNState << (Channel & 0xFU)); /* 0xFU = 15 bits max shift */
 }

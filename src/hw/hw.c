@@ -20,5 +20,5 @@ void hwInit(void)
   usbInit();
   uartInit();
   flashInit();
-  timInit();
+  pwmInit();
 }
