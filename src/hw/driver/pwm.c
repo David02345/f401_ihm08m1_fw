@@ -102,7 +102,7 @@ void pwmStart(void)
   pwmDisableOutput();
   pwmSetDuty(0.5f, 0.5f, 0.5f);
 
-  htim1.Instance->CCER |= (TIM_CCER_CC1E  | TIM_CCER_CC2E  | TIM_CCER_CC3E |
+  htim1.Instance->CCER |= (TIM_CCER_CC1E  | TIM_CCER_CC2E  | TIM_CCER_CC3E | TIM_CCER_CC4E |
                            TIM_CCER_CC1NE | TIM_CCER_CC2NE | TIM_CCER_CC3NE);
 
   __HAL_TIM_ENABLE(&htim1);
@@ -112,7 +112,7 @@ void pwmStop(void)
 {
   pwmDisableOutput();
 
-  htim1.Instance->CCER &= ~(TIM_CCER_CC1E  | TIM_CCER_CC2E  | TIM_CCER_CC3E |
+  htim1.Instance->CCER &= ~(TIM_CCER_CC1E  | TIM_CCER_CC2E  | TIM_CCER_CC3E | TIM_CCER_CC4E |
                             TIM_CCER_CC1NE | TIM_CCER_CC2NE | TIM_CCER_CC3NE);
 
   __HAL_TIM_DISABLE(&htim1);
