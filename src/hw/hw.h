@@ -9,6 +9,7 @@
 #define SRC_HW_HW_H_
 
 
+#include "adc.h"
 #include "pwm.h"
 #include "foc.h"
 #include "hw_def.h"
@@ -19,6 +20,8 @@
 #include "reset.h"
 #include "flash.h"
 #include "cli.h"
+#include "motor_types.h"
+
 
 void hwInit(void);
 

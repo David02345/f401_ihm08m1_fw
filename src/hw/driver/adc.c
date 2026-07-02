@@ -10,11 +10,22 @@
 
 ADC_HandleTypeDef hadc1;
 
-ADC_ChannelConfTypeDef sConfig = {0};
-ADC_InjectionConfTypeDef sConfigInjected = {0};
+static ADC_ChannelConfTypeDef sConfig = {0};
+static ADC_InjectionConfTypeDef sConfigInjected = {0};
 
-void adcInit(void)
+static volatile motor_abc_u16_t adc_curr_raw = {0};
+static motor_abc_f_t adc_curr_offset = {0.0f, 0.0f, 0.0f};
+static volatile uint32_t adc_curr_update_count = 0;
+
+static volatile uint16_t adc_vbus_raw  = 0;
+static volatile uint16_t adc_speed_raw = 0;
+static volatile uint16_t adc_temp_raw  = 0;
+
+
+bool adcInit(void)
 {
+  bool ret = true;
+
   hadc1.Instance = ADC1;
   hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
@@ -30,70 +41,220 @@ void adcInit(void)
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
   {
     Error_Handler();
-    return;
+    ret = false;
   }
 
-  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Channel = ADC_CH_VBUS;
   sConfig.Rank = 1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_84CYCLES;
+  sConfig.SamplingTime = ADC_VBUS_ST;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
-    return;
+    ret = false;
   }
-  sConfig.Channel = ADC_CHANNEL_4;
+  sConfig.Channel = ADC_CH_SPEED;
   sConfig.Rank = 2;
+  sConfig.SamplingTime = ADC_SPEED_ST;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
-    return;
+    ret = false;
   }
-  sConfig.Channel = ADC_CHANNEL_12;
+  sConfig.Channel = ADC_CH_TEMP;
   sConfig.Rank = 3;
+  sConfig.SamplingTime = ADC_TEMP_ST;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
-    return;
+    ret = false;
   }
 
 
   sConfigInjected.InjectedNbrOfConversion = 3;
-  sConfigInjected.InjectedSamplingTime = ADC_SAMPLETIME_28CYCLES;
+  sConfigInjected.InjectedSamplingTime = ADC_CURR_ST;
   sConfigInjected.ExternalTrigInjecConvEdge = ADC_EXTERNALTRIGINJECCONVEDGE_RISING;
   sConfigInjected.ExternalTrigInjecConv = ADC_EXTERNALTRIGINJECCONV_T1_CC4;
   sConfigInjected.AutoInjectedConv = DISABLE;
   sConfigInjected.InjectedDiscontinuousConvMode = DISABLE;
   sConfigInjected.InjectedOffset = 0;
 
-  sConfigInjected.InjectedChannel = ADC_CHANNEL_0;
+  sConfigInjected.InjectedChannel = ADC_CURR_CH1;
   sConfigInjected.InjectedRank = 1;
   if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &sConfigInjected) != HAL_OK)
   {
     Error_Handler();
-    return;
+    ret = false;
   }
-  sConfigInjected.InjectedChannel = ADC_CHANNEL_11;
+  sConfigInjected.InjectedChannel = ADC_CURR_CH2;
   sConfigInjected.InjectedRank = 2;
   if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &sConfigInjected) != HAL_OK)
   {
     Error_Handler();
-    return;
+    ret = false;
   }
-  sConfigInjected.InjectedChannel = ADC_CHANNEL_10;
+  sConfigInjected.InjectedChannel = ADC_CURR_CH3;
   sConfigInjected.InjectedRank = 3;
   if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &sConfigInjected) != HAL_OK)
   {
     Error_Handler();
+    ret = false;
+  }
+
+  return ret;
+}
+
+void adcIJTStart(void)
+{
+  HAL_ADCEx_InjectedStart_IT(&hadc1);
+}
+
+void adcIJTStop(void)
+{
+  HAL_ADCEx_InjectedStop_IT(&hadc1);
+}
+void adcRGRStart(void)
+{
+  HAL_ADC_Start(&hadc1);
+}
+
+void adcRGRStop(void)
+{
+  HAL_ADC_Stop(&hadc1);
+}
+
+
+void adcCalibrateCurrentOffset(void)
+{
+  uint32_t sum_a = 0;
+  uint32_t sum_b = 0;
+  uint32_t sum_c = 0;
+  uint32_t prev_count;
+  uint32_t timeout;
+  motor_abc_u16_t raw;
+
+  const uint32_t sample_count = 1000;
+
+  prev_count = adc_curr_update_count;
+
+  for (uint32_t i = 0; i < sample_count; i++)
+  {
+    timeout = HAL_GetTick();
+
+    while (adc_curr_update_count == prev_count)
+    {
+      if ((HAL_GetTick() - timeout) > 100)
+      {
+        return;
+      }
+    }
+
+    prev_count = adc_curr_update_count;
+
+    raw.a = adc_curr_raw.a;
+    raw.b = adc_curr_raw.b;
+    raw.c = adc_curr_raw.c;
+
+    sum_a += raw.a;
+    sum_b += raw.b;
+    sum_c += raw.c;
+  }
+
+  adc_curr_offset.a = (float)sum_a / (float)sample_count;
+  adc_curr_offset.b = (float)sum_b / (float)sample_count;
+  adc_curr_offset.c = (float)sum_c / (float)sample_count;
+}
+
+void adcGetCurrentRaw(motor_abc_u16_t *raw)
+{
+  if (raw == NULL)
+  {
     return;
   }
+
+  raw->a = adc_curr_raw.a;
+  raw->b = adc_curr_raw.b;
+  raw->c = adc_curr_raw.c;
+}
+
+void adcGetPhaseCurrent(motor_abc_f_t *curr)
+{
+  if (curr == NULL)
+  {
+    return;
+  }
+
+  curr->a = ((float)adc_curr_raw.a - adc_curr_offset.a) * ADC_CURRENT_SCALE;
+  curr->b = ((float)adc_curr_raw.b - adc_curr_offset.b) * ADC_CURRENT_SCALE;
+  curr->c = ((float)adc_curr_raw.c - adc_curr_offset.c) * ADC_CURRENT_SCALE;
+}
+
+bool adcUpdateRegular(void)
+{
+  if (HAL_ADC_Start(&hadc1) != HAL_OK)
+  {
+    return false;
+  }
+
+  if (HAL_ADC_PollForConversion(&hadc1, 10) != HAL_OK)
+  {
+    HAL_ADC_Stop(&hadc1);
+    return false;
+  }
+  adc_vbus_raw = HAL_ADC_GetValue(&hadc1);
+
+  if (HAL_ADC_PollForConversion(&hadc1, 10) != HAL_OK)
+  {
+    HAL_ADC_Stop(&hadc1);
+    return false;
+  }
+  adc_speed_raw = HAL_ADC_GetValue(&hadc1);
+
+  if (HAL_ADC_PollForConversion(&hadc1, 10) != HAL_OK)
+  {
+    HAL_ADC_Stop(&hadc1);
+    return false;
+  }
+  adc_temp_raw = HAL_ADC_GetValue(&hadc1);
+
+  HAL_ADC_Stop(&hadc1);
+
+  return true;
+}
+
+uint16_t adcGetVbusRaw(void)
+{
+  return adc_vbus_raw;
+}
+
+uint16_t adcGetSpeedRaw(void)
+{
+  return adc_speed_raw;
+}
+
+uint16_t adcGetTempRaw(void)
+{
+  return adc_temp_raw;
+}
+
+float adcGetVbusVoltage(void)
+{
+  return (float)adc_vbus_raw * ADC_VBUS_SCALE;
 }
 
 
 
 
+void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
+{
+  if (hadc->Instance == ADC1)
+  {
+    adc_curr_raw.a = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_1);
+    adc_curr_raw.b = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_2);
+    adc_curr_raw.c = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_3);
 
-
-
+    adc_curr_update_count++;
+  }
+}
 
 void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
 {

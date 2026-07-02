@@ -18,7 +18,7 @@
 //#define _USE_FOC_SVPWM
 #define _USE_FOC_SPWM
 
-
+#define _USE_HW_ADC
 #define _USE_HW_USB
 #define _USE_HW_RTC
 #define _USE_HW_RESET

@@ -24,5 +24,6 @@ void hwInit(void)
 #ifdef _USE_MOTOR_FOC
   pwmInit();
   focInit();
+  adcInit();
 #endif
 }

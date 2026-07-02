@@ -33,7 +33,7 @@ bool focInit(void)
   return ret;
 }
 
-void focClarke(float ia, float ib, float ic, foc_alphabeta_t *i_ab)
+void focClarke(float ia, float ib, float ic, motor_alphabeta_t *i_ab)
 {
   if (i_ab == NULL)
   {
@@ -44,7 +44,7 @@ void focClarke(float ia, float ib, float ic, foc_alphabeta_t *i_ab)
   i_ab->alpha = ia;
   i_ab->beta  = (ia + 2.0f * ib) / SQRT_3;
 }
-void focPark(float ialpha, float ibeta, float theta_e, foc_dq_t *i_dq)
+void focPark(float ialpha, float ibeta, float theta_e, motor_dq_t *i_dq)
 {
   if (i_dq == NULL)
   {
@@ -55,7 +55,7 @@ void focPark(float ialpha, float ibeta, float theta_e, foc_dq_t *i_dq)
   i_dq->q = -ialpha * sinf(theta_e) + ibeta * cosf(theta_e);
 }
 
-void focInvPark(float vd, float vq, float theta_e, foc_alphabeta_t *v_ab)
+void focInvPark(float vd, float vq, float theta_e, motor_alphabeta_t *v_ab)
 {
   if (v_ab == NULL)
   {
@@ -65,7 +65,7 @@ void focInvPark(float vd, float vq, float theta_e, foc_alphabeta_t *v_ab)
   v_ab->alpha = vd * cosf(theta_e) - vq * sinf(theta_e);
   v_ab->beta = vd * sinf(theta_e) + vq * cosf(theta_e);
 }
-void focInvClarke(float valpha, float vbeta, foc_abc_t *v_abc)
+void focInvClarke(float valpha, float vbeta, motor_abc_f_t *v_abc)
 {
   if (v_abc == NULL)
   {
@@ -77,7 +77,7 @@ void focInvClarke(float valpha, float vbeta, foc_abc_t *v_abc)
   v_abc->c = 0.5f * (- valpha - SQRT_3 * vbeta);
 }
 
-void focSetVoltageLimit(foc_dq_t *v_dq, float v_limit)
+void focSetVoltageLimit(motor_dq_t *v_dq, float v_limit)
 {
   float mag;
   float scale;
@@ -104,9 +104,9 @@ void focSetVoltageLimit(foc_dq_t *v_dq, float v_limit)
     v_dq->q *= scale;
   }
 }
-void focGenerateSPWM(float valpha, float vbeta, float vbus, foc_duty_t *duty)
+void focGenerateSPWM(float valpha, float vbeta, float vbus, motor_duty_t *duty)
 {
-  foc_abc_t v_abc;
+  motor_abc_f_t v_abc;
 
   if (duty == NULL)
   {
@@ -130,10 +130,10 @@ void focGenerateSPWM(float valpha, float vbeta, float vbus, foc_duty_t *duty)
   duty->v = focClamp(duty->v, 0.0f, 1.0f);
   duty->w = focClamp(duty->w, 0.0f, 1.0f);
 }
-void focRunOpenLoopVoltage(float vd, float vq, float theta_e, float vbus, foc_duty_t *duty)
+void focRunOpenLoopVoltage(float vd, float vq, float theta_e, float vbus, motor_duty_t *duty)
 {
-  foc_dq_t v_dq;
-  foc_alphabeta_t v_ab;
+  motor_dq_t v_dq;
+  motor_alphabeta_t v_ab;
 
   if (duty == NULL)
   {
