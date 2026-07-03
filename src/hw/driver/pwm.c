@@ -57,7 +57,6 @@ bool pwmInit(void)
     ret = false;
   }
 
-
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
   sConfigOC.Pulse = PWM_INIT_PULSE;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
