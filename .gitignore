@@ -23,3 +23,4 @@ Thumbs.db
 *.bak
 *.tmp
 *~
+/src/lib/cube_f401/Core/
