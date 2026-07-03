@@ -40,10 +40,10 @@
 
 
 bool adcInit(void);
-void adcIJTStart(void);
-void adcIJTStop(void);
-void adcRGRStart(void);
-void adcRGRStop(void);
+void adcInjectedStart(void);
+void adcInjectedStop(void);
+void adcRegularStart(void);
+void adcRegularStop(void);
 
 void adcCalibrateCurrentOffset(void);
 

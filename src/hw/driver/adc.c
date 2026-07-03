@@ -103,21 +103,21 @@ bool adcInit(void)
   return ret;
 }
 
-void adcIJTStart(void)
+void adcInjectedStart(void)
 {
   HAL_ADCEx_InjectedStart_IT(&hadc1);
 }
 
-void adcIJTStop(void)
+void adcInjectedStop(void)
 {
   HAL_ADCEx_InjectedStop_IT(&hadc1);
 }
-void adcRGRStart(void)
+void adcRegularStart(void)
 {
   HAL_ADC_Start(&hadc1);
 }
 
-void adcRGRStop(void)
+void adcRegularStop(void)
 {
   HAL_ADC_Stop(&hadc1);
 }
