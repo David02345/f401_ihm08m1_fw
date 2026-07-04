@@ -12,6 +12,11 @@ bool pidInit(pid_ctrl_t *pid, float kp, float ki, float kd, float min, float max
 {
   bool ret = true;
 
+  if (pid == NULL)
+  {
+    return false;
+  }
+
   pid->kp = kp;
   pid->ki = ki;
   pid->kd = kd;
@@ -36,10 +41,10 @@ float piController(pid_ctrl_t *pi, float ref, float feedback, float dt)
   float error = ref - feedback;
 
   pi->integral += error * dt;
-  clampFloat(pi->integral, -100.0f, 100.0f);
+  pi->integral = clampFloat(pi->integral, -100.0f, 100.0f);
 
   pi->output = (pi->kp * error) + (pi->ki * pi->integral);
-  clampFloat(pi->output, pi->out_min, pi->out_max);
+  pi->output = clampFloat(pi->output, pi->out_min, pi->out_max);
 
   return pi->output;
 }
@@ -58,7 +63,7 @@ float pdController(pid_ctrl_t *pd, float ref, float feedback, float dt)
 
   pd->prev_error = error;
 
-  clampFloat(pd->output, pd->out_min, pd->out_max);
+  pd->output = clampFloat(pd->output, pd->out_min, pd->out_max);
 
   return pd->output;
 }

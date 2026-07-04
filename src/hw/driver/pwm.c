@@ -146,7 +146,7 @@ static uint32_t pwmDutyToCCR(float duty)
   uint32_t arr = PWM_ARR;
   uint32_t ccr;
 
-  clampFloat(duty, 0.0f, 1.0f);
+  duty = clampFloat(duty, 0.0f, 1.0f);
 
   ccr = (uint32_t)((float)(arr + 1) * duty);
 
