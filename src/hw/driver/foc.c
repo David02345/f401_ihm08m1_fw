@@ -8,7 +8,7 @@
 #include "foc.h"
 #include "util.h"
 
-#define SQRT_3    1.732
+#define SQRT_3 1.73205080757f
 
 
 bool focInit(void)
