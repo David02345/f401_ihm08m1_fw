@@ -6,29 +6,14 @@
  */
 
 #include "foc.h"
+#include "util.h"
 
 #define SQRT_3    1.732
 
 
-static float focClamp(float value, float min, float max)
-{
-  if (value < min)
-  {
-    value = min;
-  }
-
-  if (value > max)
-  {
-    value = max;
-  }
-
-  return value;
-}
-
 bool focInit(void)
 {
   bool ret = true;
-
 
   return ret;
 }
@@ -126,9 +111,9 @@ void focGenerateSPWM(float valpha, float vbeta, float vbus, motor_duty_t *duty)
   duty->v = 0.5f + (v_abc.b / vbus);
   duty->w = 0.5f + (v_abc.c / vbus);
 
-  duty->u = focClamp(duty->u, 0.0f, 1.0f);
-  duty->v = focClamp(duty->v, 0.0f, 1.0f);
-  duty->w = focClamp(duty->w, 0.0f, 1.0f);
+  duty->u = clampFloat(duty->u, 0.0f, 1.0f);
+  duty->v = clampFloat(duty->v, 0.0f, 1.0f);
+  duty->w = clampFloat(duty->w, 0.0f, 1.0f);
 }
 void focRunOpenLoopVoltage(float vd, float vq, float theta_e, float vbus, motor_duty_t *duty)
 {

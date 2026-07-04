@@ -16,6 +16,21 @@
 #include <stdlib.h>
 #include <math.h>
 
+#define CUR_DT                            0.0002f
+#define VEL_DT                            0.001f
+#define POS_DT                            0.01f
+
+#define CUR_KP                            0.1f
+#define CUR_KI                            10.0f
+#define CUR_KD                            0.0f
+
+#define VEL_KP                            0.05f
+#define VEL_KI                            1.0f
+#define VEL_KD                            0.0f
+
+#define POS_KP                            2.0f
+#define POS_KI                            0.0f
+#define POS_KD                            0.1f
 
 #define PWM_ARR                           2099
 #define PWM_ADC_TRIG_PULSE                (PWM_ARR - 100U)

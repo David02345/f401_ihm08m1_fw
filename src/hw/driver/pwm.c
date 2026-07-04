@@ -5,6 +5,7 @@
  *      Author: YDG
  */
 #include "pwm.h"
+#include "util.h"
 
 TIM_HandleTypeDef htim1;
 
@@ -145,14 +146,8 @@ static uint32_t pwmDutyToCCR(float duty)
   uint32_t arr = PWM_ARR;
   uint32_t ccr;
 
-  if(duty > 1.0f)
-  {
-    duty = 1.0f;
-  }
-  if(duty < 0.0f)
-  {
-    duty = 0.0f;
-  }
+  clampFloat(duty, 0.0f, 1.0f);
+
   ccr = (uint32_t)((float)(arr + 1) * duty);
 
   if (ccr > PWM_ARR)
