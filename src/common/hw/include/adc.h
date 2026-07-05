@@ -45,7 +45,7 @@ void adcInjectedStop(void);
 void adcRegularStart(void);
 void adcRegularStop(void);
 
-void adcCalibrateCurrentOffset(void);
+bool adcCalibrateCurrentOffset(void);
 
 void adcGetCurrentRaw(motor_abc_u16_t *raw);
 void adcGetPhaseCurrent(motor_abc_f_t *curr);

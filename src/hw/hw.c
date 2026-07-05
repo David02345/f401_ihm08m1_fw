@@ -21,9 +21,5 @@ void hwInit(void)
   uartInit();
   flashInit();
 
-#ifdef _USE_MOTOR_FOC
-  pwmInit();
-  focInit();
-  adcInit();
-#endif
+  motorInit();
 }

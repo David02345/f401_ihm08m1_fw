@@ -16,6 +16,10 @@
 #include <stdlib.h>
 #include <math.h>
 
+#define PI 3.14159265358979323846
+
+#define OPEN_DT                           0.0002f
+
 #define CUR_DT                            0.0002f
 #define VEL_DT                            0.001f
 #define POS_DT                            0.01f
@@ -37,6 +41,14 @@
 #define PWM_DEADTIME                      80
 #define PWM_INIT_PULSE                    1049
 
+#define OUTPUT_ID_MAX                     100.0f
+#define OUTPUT_ID_MIN                     -100.0f
+#define OUTPUT_IQ_MAX                     100.0f
+#define OUTPUT_IQ_MIN                     -100.0f
+#define OUTPUT_VEL_MAX                    100.0f
+#define OUTPUT_VEL_MIN                    -100.0f
+#define OUTPUT_POS_MAX                    100.0f
+#define OUTPUT_POS_MIN                    -100.0f
 
 #define VBUS                              24
 #define VLIMIT                            13.86

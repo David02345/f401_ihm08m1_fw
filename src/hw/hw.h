@@ -8,7 +8,7 @@
 #ifndef SRC_HW_HW_H_
 #define SRC_HW_HW_H_
 
-
+#include "motor.h"
 #include "adc.h"
 #include "pwm.h"
 #include "foc.h"

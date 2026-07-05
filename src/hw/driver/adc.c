@@ -123,8 +123,9 @@ void adcRegularStop(void)
 }
 
 
-void adcCalibrateCurrentOffset(void)
+bool adcCalibrateCurrentOffset(void)
 {
+  bool ret = true;
   uint32_t sum_a = 0;
   uint32_t sum_b = 0;
   uint32_t sum_c = 0;
@@ -144,7 +145,7 @@ void adcCalibrateCurrentOffset(void)
     {
       if ((HAL_GetTick() - timeout) > 100)
       {
-        return;
+        ret = false;
       }
     }
 
@@ -162,6 +163,8 @@ void adcCalibrateCurrentOffset(void)
   adc_curr_offset.a = (float)sum_a / (float)sample_count;
   adc_curr_offset.b = (float)sum_b / (float)sample_count;
   adc_curr_offset.c = (float)sum_c / (float)sample_count;
+
+  return ret;
 }
 
 void adcGetCurrentRaw(motor_abc_u16_t *raw)
