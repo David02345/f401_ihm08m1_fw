@@ -10,7 +10,7 @@
 
 #include "def.h"
 
-
+#define PI 3.14159265358979323846
 
 static inline float clampFloat(float value, float min, float max)
 {

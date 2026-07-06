@@ -33,6 +33,8 @@ static float open_loop_speed_e = 0.0f;
 static float open_loop_vd = 0.0f;
 static float open_loop_vq = 0.0f;
 
+static float open_loop_target_speed = PI;
+
 
 bool motorInit(void)
 {
@@ -86,7 +88,15 @@ void motorStart(void)
     adcInjectedStart();
     if(adcCalibrateCurrentOffset() == true)
     {
-      motor_state = MOTOR_STATE_READY;
+      adcUpdateRegular();
+      if(motor_vbus > 0)
+      {
+        motor_state = MOTOR_STATE_READY;
+      }
+      else
+      {
+        motor_state = MOTOR_STATE_FAULT;
+      }
     }
     else
     {
@@ -141,6 +151,7 @@ void motorControlUpdate(void)
 {
   if(motor_state == MOTOR_STATE_OPEN_LOOP)
   {
+    open_loop_speed_e = clampFloat(open_loop_speed_e, 0.5f, open_loop_target_speed);
     open_loop_theta_e += (open_loop_speed_e * OPEN_DT);
     open_loop_theta_e = wrapFloat(open_loop_theta_e, 0.0f, 2.0f * PI);
     focRunOpenLoopVoltage(open_loop_vd, open_loop_vq, open_loop_theta_e, motor_vbus, &motor_duty);

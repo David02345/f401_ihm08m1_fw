@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <math.h>
 
-#define PI 3.14159265358979323846
+
 
 #define OPEN_DT                           0.0002f
 
