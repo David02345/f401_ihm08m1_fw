@@ -50,8 +50,10 @@
 #define OUTPUT_POS_MAX                    100.0f
 #define OUTPUT_POS_MIN                    -100.0f
 
-#define VBUS                              24
-#define VLIMIT                            13.86
+#define MOTOR_VBUS                        24
+#define MOTOR_VLIMIT                      13.86
+#define MOTOR_VBUS_MIN                    12
+
 
 #define GEAR_RATIO                        25
 #define GEAR_EFFICIENCY                   0.94
