@@ -44,13 +44,19 @@ static inline int32_t clampInt32(int32_t value, int32_t min, int32_t max)
 
 static inline  float wrapFloat(float theta, float min, float max)
 {
-  if(theta >= max)
+  float range = max - min;
+  if (range <= 0.0f)
   {
-    theta = theta - max + min;
+    return min;
   }
-  if(theta <= min)
+
+  while(theta >= max)
   {
-    theta = theta + max - min;
+    theta -= range;
+  }
+  while(theta < min)
+  {
+    theta += range;
   }
 
   return theta;

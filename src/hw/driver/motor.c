@@ -128,7 +128,7 @@ void motorOpenLoopStart(void)
   {
     return;
   }
-  open_loop_theta_e = open_loop_speed * OPEN_DT;
+  open_loop_theta_e = 0.0f;
   open_loop_speed_e = 0.5f;
   open_loop_vd = 0.0f;
   open_loop_vq = 0.5f;
@@ -142,7 +142,7 @@ void motorControlUpdate(void)
   if(motor_state == MOTOR_STATE_OPEN_LOOP)
   {
     open_loop_theta_e += (open_loop_speed_e * OPEN_DT);
-    open_loop_theta_e = wrapFloat(open_loop_theta_e, 0, 2 * PI);
+    open_loop_theta_e = wrapFloat(open_loop_theta_e, 0.0f, 2.0f * PI);
     focRunOpenLoopVoltage(open_loop_vd, open_loop_vq, open_loop_theta_e, motor_vbus, &motor_duty);
     pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
   }

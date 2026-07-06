@@ -145,6 +145,7 @@ bool adcCalibrateCurrentOffset(void)
     {
       if ((HAL_GetTick() - timeout) > 100)
       {
+        ret = false;
         return ret;
       }
     }
