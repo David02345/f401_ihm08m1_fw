@@ -33,7 +33,6 @@ static float open_loop_speed_e = 0.0f;
 static float open_loop_vd = 0.0f;
 static float open_loop_vq = 0.0f;
 
-static float theta_e = 0.0f;
 
 bool motorInit(void)
 {
@@ -129,10 +128,10 @@ void motorOpenLoopStart(void)
   {
     return;
   }
-  open_loop_theta_e = 0;
-  open_loop_speed_e = 0;
-  open_loop_vd = 0;
-  open_loop_vq = 0;
+  open_loop_theta_e = open_loop_speed * OPEN_DT;
+  open_loop_speed_e = 0.5f;
+  open_loop_vd = 0.0f;
+  open_loop_vq = 0.5f;
   pwmSetDuty(0.5, 0.5, 0.5);
 
   pwmEnableOutput();
@@ -142,21 +141,28 @@ void motorControlUpdate(void)
 {
   if(motor_state == MOTOR_STATE_OPEN_LOOP)
   {
-    theta_e += (open_loop_speed_e * OPEN_DT);
-    clampFloat(theta_e, 0, 2 * PI);
-    focRunOpenLoopVoltage(open_loop_vd, open_loop_vq, theta_e, motor_vbus, &motor_duty);
+    open_loop_theta_e += (open_loop_speed_e * OPEN_DT);
+    open_loop_theta_e = wrapFloat(open_loop_theta_e, 0, 2 * PI);
+    focRunOpenLoopVoltage(open_loop_vd, open_loop_vq, open_loop_theta_e, motor_vbus, &motor_duty);
     pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
   }
 }
 void motorLowSpeedTask(void)
 {
-  adcUpdateRegular();
-  motor_vbus = adcGetVbusVoltage();
-  motor_speed_cmd_raw = adcGetSpeedRaw();
-  motor_temp_raw = adcGetTempRaw();
+  if(adcUpdateRegular())
+  {
+    motor_vbus = adcGetVbusVoltage();
+    motor_speed_cmd_raw = adcGetSpeedRaw();
+    motor_temp_raw = adcGetTempRaw();
+  }
+  else
+  {
+    motor_state = MOTOR_STATE_FAULT;
+  }
 
   if (motor_state == MOTOR_STATE_FAULT)
   {
+    pwmDisableOutput();
     return;
   }
 }

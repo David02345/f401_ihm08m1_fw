@@ -42,5 +42,20 @@ static inline int32_t clampInt32(int32_t value, int32_t min, int32_t max)
   return value;
 }
 
+static inline  float wrapFloat(float theta, float min, float max)
+{
+  if(theta >= max)
+  {
+    theta = theta - max + min;
+  }
+  if(theta <= min)
+  {
+    theta = theta + max - min;
+  }
+
+  return theta;
+}
+
+
 
 #endif /* SRC_COMMON_CORE_UTIL_H_ */
