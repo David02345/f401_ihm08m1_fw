@@ -9,15 +9,10 @@
 #include "motor_types.h"
 #include "util.h"
 
-typedef enum
-{
-  MOTOR_STATE_IDLE,
-  MOTOR_STATE_READY,
-  MOTOR_STATE_OPEN_LOOP,
-  MOTOR_STATE_FAULT,
-}motor_state_t;
+
 
 static motor_state_t motor_state;
+static motor_fault_t motor_fault = MOTOR_FAULT_NONE;
 static motor_duty_t motor_duty;
 
 static pid_ctrl_t pi_id;
@@ -35,11 +30,16 @@ static float open_loop_vq = 0.0f;
 
 
 
+static void motorSetFault(motor_fault_t fault);
+
+
+
 bool motorInit(void)
 {
   bool ret = true;
 
   motor_state = MOTOR_STATE_IDLE;
+  motor_fault = MOTOR_FAULT_NONE;
 
   if(pidInit(&pi_id, CUR_KP, CUR_KI, CUR_KD, OUTPUT_ID_MIN, OUTPUT_ID_MAX) != true)
   {
@@ -66,6 +66,11 @@ bool motorInit(void)
     ret = false;
     motor_state = MOTOR_STATE_FAULT;
   }
+  else
+  {
+    adcSetInjectedCallback(motorControlUpdate);
+  }
+
   if(pwmInit() != true)
   {
     ret = false;
@@ -77,60 +82,47 @@ bool motorInit(void)
     motor_state = MOTOR_STATE_FAULT;
   }
 
+  if (ret != true)
+  {
+    motorSetFault(MOTOR_FAULT_INIT_FAIL);
+  }
+
   return ret;
 }
+
 void motorStart(void)
 {
-  if(motor_state == MOTOR_STATE_IDLE)
+  if(motor_state != MOTOR_STATE_IDLE)
   {
-    pwmStart();
-    adcInjectedStart();
-    if(adcCalibrateCurrentOffset() == true)
-    {
-      if(adcUpdateRegular() == true)
-      {
-        motor_vbus = adcGetVbusVoltage();
-
-        if(motor_vbus > MOTOR_VBUS_MIN)
-        {
-          motor_state = MOTOR_STATE_READY;
-        }
-        else
-        {
-          motor_state = MOTOR_STATE_FAULT;
-        }
-      }
-      else
-      {
-        motor_state = MOTOR_STATE_FAULT;
-      }
-    }
-    else
-    {
-      pwmDisableOutput();
-      adcInjectedStop();
-      pwmStop();
-
-      motor_state = MOTOR_STATE_FAULT;
-    }
-  }
-  else if(motor_state == MOTOR_STATE_FAULT)
-  {
-    pwmDisableOutput();
-    adcInjectedStop();
-    pwmStop();
-
     return;
   }
-  else if(motor_state == MOTOR_STATE_OPEN_LOOP)
+
+  pwmStart();
+  adcInjectedStart();
+
+  if(adcCalibrateCurrentOffset() != true)
   {
-    pwmDisableOutput();
-    adcInjectedStop();
-    pwmStop();
-    motor_state = MOTOR_STATE_FAULT;
+    motorSetFault(MOTOR_FAULT_ADC_OFFSET_FAIL);
     return;
   }
+
+  if(adcUpdateRegular() != true)
+  {
+    motorSetFault(MOTOR_FAULT_ADC_REGULAR_FAIL);
+    return;
+  }
+
+  motor_vbus = adcGetVbusVoltage();
+
+  if(motor_vbus < MOTOR_VBUS_MIN)
+  {
+    motorSetFault(MOTOR_FAULT_VBUS_LOW);
+    return;
+  }
+
+  motor_state = MOTOR_STATE_READY;
 }
+
 void motorStop(void)
 {
   pwmDisableOutput();
@@ -148,43 +140,56 @@ void motorOpenLoopStart(void)
   open_loop_theta_e = 0.0f;
   open_loop_speed_e = 0.5f;
   open_loop_vd = 0.0f;
-  open_loop_vq = 0.5f;
+  open_loop_vq = OPEN_LOOP_TARGET_VQ;
   pwmSetDuty(0.5, 0.5, 0.5);
 
   pwmEnableOutput();
   motor_state = MOTOR_STATE_OPEN_LOOP;
 }
+
 void motorControlUpdate(void)
 {
-  float ramp_step = 0.1f;
-  float open_loop_target_speed = PI;
-
   if(motor_state == MOTOR_STATE_OPEN_LOOP)
   {
-    open_loop_speed_e += ramp_step;
-    open_loop_speed_e = clampFloat(open_loop_speed_e, 0.5f, open_loop_target_speed);
+    open_loop_speed_e += OPEN_LOOP_ACCEL_E * OPEN_DT;
+    open_loop_speed_e = clampFloat(open_loop_speed_e, 0.5f, OPEN_LOOP_TARGET_SPEED);
     open_loop_theta_e += (open_loop_speed_e * OPEN_DT);
     open_loop_theta_e = wrapFloat(open_loop_theta_e, 0.0f, 2.0f * PI);
     focRunOpenLoopVoltage(open_loop_vd, open_loop_vq, open_loop_theta_e, motor_vbus, &motor_duty);
     pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
   }
 }
+
 void motorLowSpeedTask(void)
 {
-  if(adcUpdateRegular())
+  if(motor_state == MOTOR_STATE_FAULT)
   {
-    motor_vbus = adcGetVbusVoltage();
-    motor_speed_cmd_raw = adcGetSpeedRaw();
-    motor_temp_raw = adcGetTempRaw();
-  }
-  else
-  {
-    motor_state = MOTOR_STATE_FAULT;
-  }
-
-  if (motor_state == MOTOR_STATE_FAULT)
-  {
-    pwmDisableOutput();
     return;
   }
+
+  if(adcUpdateRegular() != true)
+  {
+    motorSetFault(MOTOR_FAULT_ADC_REGULAR_FAIL);
+    return;
+  }
+  motor_vbus = adcGetVbusVoltage();
+  motor_speed_cmd_raw = adcGetSpeedRaw();
+  motor_temp_raw = adcGetTempRaw();
+
+  if(motor_vbus < MOTOR_VBUS_MIN)
+  {
+    motorSetFault(MOTOR_FAULT_VBUS_LOW);
+    return;
+  }
+}
+
+static void motorSetFault(motor_fault_t fault)
+{
+  pwmDisableOutput();
+
+  adcInjectedStop();
+  pwmStop();
+
+  motor_fault = fault;
+  motor_state = MOTOR_STATE_FAULT;
 }

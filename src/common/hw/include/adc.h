@@ -39,6 +39,11 @@
 #define ADC_CURRENT_SCALE     0.01555f
 
 
+
+typedef void (*adc_injected_callback_t)(void); //             motor.c에서 사용
+void adcSetInjectedCallback(adc_injected_callback_t callback);
+
+
 bool adcInit(void);
 void adcInjectedStart(void);
 void adcInjectedStop(void);

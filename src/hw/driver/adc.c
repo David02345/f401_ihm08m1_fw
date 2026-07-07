@@ -21,6 +21,10 @@ static volatile uint16_t adc_vbus_raw  = 0;
 static volatile uint16_t adc_speed_raw = 0;
 static volatile uint16_t adc_temp_raw  = 0;
 
+static adc_injected_callback_t adc_injected_callback = NULL;
+
+
+
 
 bool adcInit(void)
 {
@@ -247,16 +251,26 @@ float adcGetVbusVoltage(void)
 
 
 
+void adcSetInjectedCallback(adc_injected_callback_t callback)
+{
+  adc_injected_callback = callback;
+}
 
 void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
-  if (hadc->Instance == ADC1)
+  if (hadc->Instance != ADC1)
   {
-    adc_curr_raw.a = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_1);
-    adc_curr_raw.b = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_2);
-    adc_curr_raw.c = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_3);
+    return;
+  }
+  adc_curr_raw.a = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_1);
+  adc_curr_raw.b = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_2);
+  adc_curr_raw.c = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_3);
 
-    adc_curr_update_count++;
+  adc_curr_update_count++;
+
+  if (adc_injected_callback != NULL)
+  {
+    adc_injected_callback();
   }
 }
 

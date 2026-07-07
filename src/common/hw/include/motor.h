@@ -15,7 +15,24 @@
 #include "foc.h"
 
 
+typedef enum
+{
+  MOTOR_STATE_IDLE,
+  MOTOR_STATE_READY,
+  MOTOR_STATE_OPEN_LOOP,
+  MOTOR_STATE_FAULT,
+} motor_state_t;
 
+typedef enum
+{
+  MOTOR_FAULT_NONE = 0,
+  MOTOR_FAULT_INIT_FAIL,
+  MOTOR_FAULT_ADC_OFFSET_FAIL,
+  MOTOR_FAULT_VBUS_LOW,
+  MOTOR_FAULT_ADC_REGULAR_FAIL,
+  MOTOR_FAULT_OVERCURRENT,
+  MOTOR_FAULT_OPEN_LOOP_FAIL,
+} motor_fault_t;
 
 bool motorInit(void);
 void motorStart(void);
