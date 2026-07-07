@@ -10,7 +10,7 @@
 
 void apInit(void)
 {
-
+  uartOpen(_DEF_UART1, 57600);
 }
 
 void apMain(void)
@@ -30,6 +30,11 @@ void apMain(void)
     {
       pre_time_motor_slow = millis();
       motorLowSpeedTask();
+
+      uartPrintf(_DEF_UART1, "Current Update Count : %d\r\n", adcGetCurrentUpdateCount());
+      uartPrintf(_DEF_UART1, "Motor State : %d\r\n", motorGetState());
+      uartPrintf(_DEF_UART1, "Motor Fault : %d\r\n", motorGetFault());
+      uartPrintf(_DEF_UART1, "Motor VBUS : %d\r\n", motorGetVbus());
     }
   }
 }

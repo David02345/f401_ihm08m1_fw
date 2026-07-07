@@ -249,8 +249,6 @@ float adcGetVbusVoltage(void)
   return (float)adc_vbus_raw * ADC_VBUS_SCALE;
 }
 
-
-
 void adcSetInjectedCallback(adc_injected_callback_t callback)
 {
   adc_injected_callback = callback;
@@ -273,6 +271,16 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
     adc_injected_callback();
   }
 }
+
+uint32_t adcGetCurrentUpdateCount(void)
+{
+  return adc_curr_update_count;
+}
+
+
+
+
+
 
 void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
 {

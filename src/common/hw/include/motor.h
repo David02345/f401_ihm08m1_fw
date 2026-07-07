@@ -41,4 +41,8 @@ void motorOpenLoopStart(void);
 void motorControlUpdate(void);
 void motorLowSpeedTask(void);
 
+motor_state_t motorGetState(void);
+motor_fault_t motorGetFault(void);
+float motorGetVbus(void);
+
 #endif /* SRC_COMMON_HW_INCLUDE_MOTOR_H_ */

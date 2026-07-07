@@ -59,8 +59,8 @@ bool adcUpdateRegular(void);
 uint16_t adcGetVbusRaw(void);
 uint16_t adcGetSpeedRaw(void);
 uint16_t adcGetTempRaw(void);
-
 float adcGetVbusVoltage(void);
+uint32_t adcGetCurrentUpdateCount(void);
 
 #endif
 #endif /* SRC_COMMON_HW_INCLUDE_ADC_H_ */

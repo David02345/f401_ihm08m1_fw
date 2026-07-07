@@ -89,7 +89,6 @@
   * @}
   */
 
-
 /** @defgroup Open-Loop Define
   * @{
   */
@@ -101,7 +100,13 @@
   * @}
   */
 
-
+/** @defgroup Math Utils
+  * @{
+  */
+#define PI 3.14159265358979323846
+/**
+  * @}
+  */
 
 /** @defgroup HW Channel Define
   * @{

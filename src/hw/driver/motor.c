@@ -11,9 +11,12 @@
 
 
 
-static motor_state_t motor_state;
-static motor_fault_t motor_fault = MOTOR_FAULT_NONE;
+static volatile motor_state_t motor_state;
+static volatile motor_fault_t motor_fault = MOTOR_FAULT_NONE;
 static motor_duty_t motor_duty;
+
+
+
 
 static pid_ctrl_t pi_id;
 static pid_ctrl_t pi_iq;
@@ -192,4 +195,19 @@ static void motorSetFault(motor_fault_t fault)
 
   motor_fault = fault;
   motor_state = MOTOR_STATE_FAULT;
+}
+
+motor_state_t motorGetState(void)
+{
+  return motor_state;
+}
+
+motor_fault_t motorGetFault(void)
+{
+  return motor_fault;
+}
+
+float motorGetVbus(void)
+{
+  return adcGetVbusVoltage();
 }
