@@ -5,7 +5,6 @@
  *      Author: YDG
  */
 #include "uart.h"
-#include "cdc.h"
 #include "qbuffer.h"
 
 
@@ -35,10 +34,6 @@ bool uartOpen(uint8_t ch, uint32_t baud)
   switch(ch)
   {
     case _DEF_UART1:
-      is_open[ch] = true;
-      ret = true;
-      break;
-    case _DEF_UART2:
       huart1.Instance          = USART1;
       huart1.Init.BaudRate     = baud;
       huart1.Init.WordLength   = UART_WORDLENGTH_8B;
@@ -73,7 +68,7 @@ bool uartOpen(uint8_t ch, uint32_t baud)
         qbuffer[ch].out = qbuffer[ch].in;
       }
       break;
-    case _DEF_UART3:
+    case _DEF_UART2:
       huart2.Instance          = USART2;
       huart2.Init.BaudRate     = baud;
       huart2.Init.WordLength   = UART_WORDLENGTH_8B;
@@ -119,14 +114,10 @@ uint32_t uartAvailable(uint8_t ch)
   switch(ch)
   {
     case _DEF_UART1:
-      ret = cdcAvailable();
-      break;
-
-    case _DEF_UART2:
       qbuffer[ch].in = qbuffer[ch].len - hdma_usart1_rx.Instance->NDTR;
       ret = qbufferAvailable(&qbuffer[ch]);
       break;
-    case _DEF_UART3:
+    case _DEF_UART2:
       qbuffer[ch].in = qbuffer[ch].len - hdma_usart2_rx.Instance->NDTR;
       ret = qbufferAvailable(&qbuffer[ch]);
       break;
@@ -141,14 +132,10 @@ uint8_t  uartRead(uint8_t ch)
   switch(ch)
   {
     case _DEF_UART1:
-      ret = cdcRead();
-      break;
-
-    case _DEF_UART2:
       qbufferRead(&qbuffer[ch], &ret, 1);
       break;
 
-    case _DEF_UART3:
+    case _DEF_UART2:
       qbufferRead(&qbuffer[ch], &ret, 1);
       break;
   }
@@ -161,17 +148,14 @@ uint32_t uartWrite(uint8_t ch, uint8_t *p_data, uint32_t length)
   HAL_StatusTypeDef status;
   switch(ch)
   {
-    case _DEF_UART1: // USB CDC
-      ret = cdcWrite(p_data, length);
-      break;
-    case _DEF_UART2: // 실제 HW UART
+    case _DEF_UART1:
       status = HAL_UART_Transmit(&huart1, p_data, length, 100);
       if(status == HAL_OK)
       {
         ret = length;
       }
       break;
-    case _DEF_UART3: // 실제 HW UART
+    case _DEF_UART2:
       status = HAL_UART_Transmit(&huart2, p_data, length, 100);
       if(status == HAL_OK)
       {
@@ -204,12 +188,9 @@ uint32_t uartGetBaud(uint8_t ch)
   switch(ch)
   {
     case _DEF_UART1:
-      ret = cdcGetBaud();
-      break;
-    case _DEF_UART2:
       ret = huart1.Init.BaudRate;
       break;
-    case _DEF_UART3:
+    case _DEF_UART2:
       ret = huart2.Init.BaudRate;
       break;
   }

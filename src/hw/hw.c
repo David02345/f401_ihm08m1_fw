@@ -17,7 +17,7 @@ void hwInit(void)
   rtcInit();
   resetInit();
   ledInit();
-  usbInit();
+  //usbInit();
   uartInit();
   flashInit();
 
