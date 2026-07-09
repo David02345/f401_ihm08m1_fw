@@ -116,6 +116,10 @@ void pwmStart(void)
   pwmDisableOutput();
   pwmSetDuty(0.5f, 0.5f, 0.5f);
 
+  pwmClearBreakFault();
+  __HAL_TIM_CLEAR_FLAG(&htim1, TIM_FLAG_BREAK);
+  __HAL_TIM_ENABLE_IT(&htim1, TIM_IT_BREAK);
+
   htim1.Instance->CCER |= (TIM_CCER_CC1E  | TIM_CCER_CC2E  | TIM_CCER_CC3E | TIM_CCER_CC4E |
                            TIM_CCER_CC1NE | TIM_CCER_CC2NE | TIM_CCER_CC3NE);
 
@@ -125,6 +129,8 @@ void pwmStart(void)
 void pwmStop(void)
 {
   pwmDisableOutput();
+
+  __HAL_TIM_DISABLE_IT(&htim1, TIM_IT_BREAK);
 
   htim1.Instance->CCER &= ~(TIM_CCER_CC1E  | TIM_CCER_CC2E  | TIM_CCER_CC3E | TIM_CCER_CC4E |
                             TIM_CCER_CC1NE | TIM_CCER_CC2NE | TIM_CCER_CC3NE);
