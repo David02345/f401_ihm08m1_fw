@@ -74,7 +74,7 @@ bool uartOpen(uint8_t ch, uint32_t baud)
       }
       break;
     case _DEF_UART3:
-      huart2.Instance = USART2;
+      huart2.Instance          = USART2;
       huart2.Init.BaudRate     = baud;
       huart2.Init.WordLength   = UART_WORDLENGTH_8B;
       huart2.Init.StopBits     = UART_STOPBITS_1;

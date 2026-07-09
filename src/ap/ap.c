@@ -1,11 +1,10 @@
 /*
  * ap.c
  *
- *  Created on: 2026. 5. 26.
+ *  Created on: 2026. 5. 26.45
  *      Author: YDG
  */
 #include "ap.h"
-
 
 
 void apInit(void)
