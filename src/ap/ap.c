@@ -10,7 +10,7 @@
 
 void apInit(void)
 {
-  uartOpen(_DEF_UART1, 57600);
+  uartOpen(_DEF_UART2, 57600);
 }
 
 void apMain(void)
@@ -49,11 +49,11 @@ void apMain(void)
       uint32_t adc_hz = adc_diff * 2U;   // 500ms 기준이므로 x2
       int32_t vbus_mv = (int32_t)(motorGetVbus() * 1000.0f);
 
-      uartPrintf(_DEF_UART1, "ADC Count : %lu\r\n", (unsigned long)adc_count);
-      uartPrintf(_DEF_UART1, "ADC Hz    : %lu\r\n", (unsigned long)adc_hz);
-      uartPrintf(_DEF_UART1, "State     : %d\r\n", (int)motorGetState());
-      uartPrintf(_DEF_UART1, "Fault     : %d\r\n", (int)motorGetFault());
-      uartPrintf(_DEF_UART1, "VBUS      : %ld mV\r\n", (long)vbus_mv);
+      uartPrintf(_DEF_UART2, "ADC Count : %lu\r\n", (unsigned long)adc_count);
+      uartPrintf(_DEF_UART2, "ADC Hz    : %lu\r\n", (unsigned long)adc_hz);
+      uartPrintf(_DEF_UART2, "State     : %d\r\n", (int)motorGetState());
+      uartPrintf(_DEF_UART2, "Fault     : %d\r\n", (int)motorGetFault());
+      uartPrintf(_DEF_UART2, "VBUS      : %ld mV\r\n", (long)vbus_mv);
     }
   }
 }
