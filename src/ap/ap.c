@@ -24,7 +24,7 @@ void apMain(void)
   motorStart();
 
   delay(500);
-  motorOpenLoopStart();
+  //motorOpenLoopStart();
 
   prev_adc_count = adcGetCurrentUpdateCount();
 
