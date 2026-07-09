@@ -72,7 +72,7 @@ bool uartOpen(uint8_t ch, uint32_t baud)
         qbuffer[ch].in = qbuffer[ch].len - hdma_usart1_rx.Instance->NDTR;
         qbuffer[ch].out = qbuffer[ch].in;
       }
-
+      break;
     case _DEF_UART3:
       huart2.Instance = USART2;
       huart2.Init.BaudRate     = baud;
