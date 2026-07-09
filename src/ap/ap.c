@@ -6,11 +6,13 @@
  */
 #include "ap.h"
 
+extern TIM_HandleTypeDef htim1;
 
 void apInit(void)
 {
   uartOpen(_DEF_UART1, 57600);
 }
+
 
 void apMain(void)
 {
@@ -20,10 +22,10 @@ void apMain(void)
   uint32_t prev_adc_count = 0;
 
   delay(1000);
-  //motorStart();
+  motorStart();
 
   delay(500);
-  //motorOpenLoopStart();
+  motorOpenLoopStart();
 
   prev_adc_count = adcGetCurrentUpdateCount();
 
@@ -56,3 +58,4 @@ void apMain(void)
     }
   }
 }
+

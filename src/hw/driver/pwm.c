@@ -52,13 +52,18 @@ bool pwmInit(void)
     Error_Handler();
     ret = false;
   }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
   {
     Error_Handler();
     ret = false;
   }
+
+  /* Debug force: TIM1 TRGO = Update event */
+  TIM1->CR2 &= ~TIM_CR2_MMS;
+  TIM1->CR2 |= TIM_CR2_MMS_1;
+
 
   sConfigOC.OCMode       = TIM_OCMODE_PWM1;
   sConfigOC.Pulse        = PWM_INIT_PULSE;

@@ -91,15 +91,6 @@ void motorStart(void)
     return;
   }
 
-  pwmStart();
-  adcInjectedStart();
-
-  if(adcCalibrateCurrentOffset() != true)
-  {
-    motorSetFault(MOTOR_FAULT_ADC_OFFSET_FAIL);
-    return;
-  }
-
   if(adcUpdateRegular() != true)
   {
     motorSetFault(MOTOR_FAULT_ADC_REGULAR_FAIL);
@@ -111,6 +102,15 @@ void motorStart(void)
   if(motor_vbus < MOTOR_VBUS_MIN)
   {
     motorSetFault(MOTOR_FAULT_VBUS_LOW);
+    return;
+  }
+
+  adcInjectedStart();
+  pwmStart();
+
+  if(adcCalibrateCurrentOffset() != true)
+  {
+    motorSetFault(MOTOR_FAULT_ADC_OFFSET_FAIL);
     return;
   }
 

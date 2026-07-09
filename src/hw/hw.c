@@ -21,5 +21,5 @@ void hwInit(void)
   uartInit();
   //flashInit();
 
-  //motorInit();
+  motorInit();
 }
