@@ -10,31 +10,22 @@
 #include "util.h"
 
 
-
 static volatile motor_state_t motor_state;
 static volatile motor_fault_t motor_fault = MOTOR_FAULT_NONE;
 static motor_duty_t motor_duty;
-
-
-
 
 static pid_ctrl_t pi_id;
 static pid_ctrl_t pi_iq;
 static pid_ctrl_t pi_vel;
 static pid_ctrl_t pd_pos;
 
-static float motor_vbus = 0.0f;
+static volatile float motor_vbus = 0.0f;
 static uint16_t motor_speed_cmd_raw = 0;
 static uint16_t motor_temp_raw = 0;
 static float open_loop_theta_e = 0.0f;
 static float open_loop_speed_e = 0.0f;
 static float open_loop_vd = 0.0f;
 static float open_loop_vq = 0.0f;
-
-
-
-static void motorSetFault(motor_fault_t fault);
-
 
 
 bool motorInit(void)
@@ -170,6 +161,12 @@ void motorLowSpeedTask(void)
     return;
   }
 
+  if (pwmIsBreakFault())
+   {
+     motorSetFault(MOTOR_FAULT_BKIN);
+     return;
+   }
+
   if(adcUpdateRegular() != true)
   {
     motorSetFault(MOTOR_FAULT_ADC_REGULAR_FAIL);
@@ -186,7 +183,7 @@ void motorLowSpeedTask(void)
   }
 }
 
-static void motorSetFault(motor_fault_t fault)
+void motorSetFault(motor_fault_t fault)
 {
   pwmDisableOutput();
 
@@ -195,6 +192,19 @@ static void motorSetFault(motor_fault_t fault)
 
   motor_fault = fault;
   motor_state = MOTOR_STATE_FAULT;
+}
+
+void motorClearFault(void)
+{
+  if (motor_state != MOTOR_STATE_FAULT)
+  {
+    return;
+  }
+
+  pwmClearBreakFault();
+
+  motor_fault = MOTOR_FAULT_NONE;
+  motor_state = MOTOR_STATE_IDLE;
 }
 
 motor_state_t motorGetState(void)
@@ -209,5 +219,5 @@ motor_fault_t motorGetFault(void)
 
 float motorGetVbus(void)
 {
-  return adcGetVbusVoltage();
+  return motor_vbus;
 }

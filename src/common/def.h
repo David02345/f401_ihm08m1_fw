@@ -16,6 +16,13 @@
 #include <stdlib.h>
 #include <math.h>
 
+/** @defgroup Math Utils
+  * @{
+  */
+#define PI 3.14159265358979323846
+/**
+  * @}
+  */
 
 /** @defgroup PID Gains for Current, Speed, Position Control
   * @{
@@ -96,14 +103,6 @@
 #define OPEN_LOOP_ACCEL_E                 20.0f
 #define OPEN_LOOP_TARGET_SPEED            PI
 #define OPEN_LOOP_TARGET_VQ               1.0f
-/**
-  * @}
-  */
-
-/** @defgroup Math Utils
-  * @{
-  */
-#define PI 3.14159265358979323846
 /**
   * @}
   */

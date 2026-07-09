@@ -17,5 +17,7 @@ void pwmStop(void);
 void pwmEnableOutput(void);
 void pwmDisableOutput(void);
 void pwmSetDuty(float duty_u, float duty_v, float duty_w);
+bool pwmIsBreakFault(void);
+void pwmClearBreakFault(void);
 
 #endif /* SRC_COMMON_HW_INCLUDE_PWM_H_ */

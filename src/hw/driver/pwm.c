@@ -16,6 +16,8 @@ TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
 
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef* timHandle);
 
+static volatile bool pwm_break_fault = false;
+
 
 bool pwmInit(void)
 {
@@ -170,9 +172,25 @@ void pwmSetDuty(float duty_u, float duty_v, float duty_w)
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, ccr_w);
 }
 
+bool pwmIsBreakFault(void)
+{
+  return pwm_break_fault;
+}
 
+void pwmClearBreakFault(void)
+{
+  pwm_break_fault = false;
 
+  __HAL_TIM_CLEAR_FLAG(&htim1, TIM_FLAG_BREAK);
+}
 
+void HAL_TIMEx_BreakCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim->Instance == TIM1)
+  {
+    pwm_break_fault = true;
+  }
+}
 
 
 
