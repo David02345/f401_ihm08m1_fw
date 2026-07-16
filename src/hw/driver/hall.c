@@ -178,9 +178,16 @@ float hallGetMechanicalSpeed(void)
 
 float hallGetElectricalAngle(void)
 {
-  hall_angle_e += (hall_speed_e * SPD_DT);
+  uint32_t elapsed_cycle;
+  float elapsed_sec;
+  float theta_e;
 
-  return hall_angle_e;
+  elapsed_cycle = cycleGet() - hall_last_cycle;
+  elapsed_sec = (float)elapsed_cycle / (float)cycleGetFreq();
+
+  theta_e = hall_angle_e + hall_speed_e * elapsed_sec;
+
+  return wrapFloat(theta_e, 0, 2 * PI);
 }
 
 float hallGetMechanicalAngle(void)

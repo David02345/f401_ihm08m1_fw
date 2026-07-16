@@ -9,7 +9,7 @@
 #define SRC_COMMON_HW_INCLUDE_HALL_H_
 
 #include "hw_def.h"
-
+#include "util.h"
 
 #if _USE_HALL_SENSOR
 

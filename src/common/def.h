@@ -57,9 +57,19 @@
 #define PWM_DEADTIME                      80
 #define PWM_ADC_BLANK_TICKS               150U
 #define PWM_ADC_TRIG_PULSE                (PWM_ARR - PWM_ADC_BLANK_TICKS)
+#define PWM_ADC_INIT_PULSE                1049
 /**
   * @}
   */
+
+/** @defgroup Speed loop / Current loop divider
+  * @{
+  */
+#define SPEED_LOOP_DIVIDER  20U
+/**
+  * @}
+  */
+
 
 /** @defgroup Integral & Output Minimum, Maximum Values
   * @{

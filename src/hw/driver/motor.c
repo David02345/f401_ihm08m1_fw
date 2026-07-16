@@ -28,6 +28,8 @@ static uint16_t motor_temp_raw      = 0;
 #if _USE_MOTOR_SPEED_LOOP
 static float speed_w_ref  = 0.0f;
 static float speed_w_meas = 0.0f;
+
+static uint16_t speed_loop_divider = 0;
 #endif
 
 #if _USE_MOTOR_CURRENT_LOOP
@@ -131,16 +133,12 @@ void motorStart(void)
     speed_w_ref    = 0.0f;
 
     motor_state = MOTOR_STATE_SPEED_LOOP;
-#endif
-
-#if _USE_MOTOR_CURRENT_LOOP
+#elif _USE_MOTOR_CURRENT_LOOP
     current_id_ref = 0.0f;
     current_iq_ref = 0.0f;
 
     motor_state = MOTOR_STATE_CURRENT_LOOP;
-#endif
-
-#if _USE_MOTOR_OPENLOOP
+#elif _USE_MOTOR_OPENLOOP
     open_loop_theta_e = 0.0f;
     open_loop_speed_e = 0.5f;
     open_loop_vd = 0.0f;
@@ -171,8 +169,6 @@ static void motorSpeedLoop(void)
 
   current_id_ref = 0;
   current_iq_ref = piController(&pi_spd, speed_w_ref, speed_w_meas, SPD_DT);
-
-  motor_state = MOTOR_STATE_CURRENT_LOOP;
 }
 #endif
 
@@ -226,11 +222,33 @@ static void motorOpenLoop
 
 void motorControlUpdate(void)
 {
+  float theta_e;
+
+  if (motor_state != MOTOR_STATE_CURRENT_LOOP &&
+      motor_state != MOTOR_STATE_SPEED_LOOP)
+  {
+      return;
+  }
+
+#if _USE_HALL_SENSOR
+  theta_e = hallGetElectricalAngle();
+#else
+  theta_e = 0.0f;
+#endif
+
 #if _USE_MOTOR_SPEED_LOOP
-   motorSpeedLoop();
+  if (motor_state == MOTOR_STATE_SPEED_LOOP)
+  {
+    speed_loop_divider++;
+
+    if (speed_loop_divider >= SPEED_LOOP_DIVIDER)
+    {
+      speed_loop_divider = 0;
+      motorSpeedLoop();       // iq_ref만 갱신
+    }
+  }
 #endif
 #if _USE_MOTOR_CURRENT_LOOP
-   float theta_e = hallGetMechanicalAngle();
    motorCurrentLoop(current_id_ref, current_iq_ref, theta_e);
 #endif
 #if _USE_MOTOR_OPENLOOP

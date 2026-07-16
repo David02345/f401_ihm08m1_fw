@@ -61,7 +61,7 @@ bool pwmInit(void)
   }
 
   sConfigOC.OCMode       = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse        = PWM_ADC_TRIG_PULSE;
+  sConfigOC.Pulse        = PWM_ADC_INIT_PULSE;
   sConfigOC.OCPolarity   = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity  = TIM_OCNPOLARITY_LOW;
   sConfigOC.OCFastMode   = TIM_OCFAST_DISABLE;
@@ -82,9 +82,8 @@ bool pwmInit(void)
     Error_Handler();
     ret = false;
   }
-  sConfigOC.OCMode = TIM_OCMODE_TIMING;
   sConfigOC.Pulse = PWM_ADC_TRIG_PULSE;
-  if (HAL_TIM_OC_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();
     ret = false;
