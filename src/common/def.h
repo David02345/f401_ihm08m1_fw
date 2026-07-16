@@ -44,7 +44,7 @@
   * @{
   */
 #define CUR_DT                            0.00005f
-#define VEL_DT                            0.001f
+#define SPD_DT                            0.001f
 #define POS_DT                            0.01f
 /**
   * @}
@@ -54,16 +54,23 @@
   * @{
   */
 #define PWM_ARR                           2099
-#define PWM_ADC_TRIG_PULSE                (PWM_ARR - 100U)
 #define PWM_DEADTIME                      80
-#define PWM_INIT_PULSE                    1049
+#define PWM_ADC_BLANK_TICKS               150U
+#define PWM_ADC_TRIG_PULSE                (PWM_ARR - PWM_ADC_BLANK_TICKS)
 /**
   * @}
   */
 
-/** @defgroup Output Minimum, Maximum Values
+/** @defgroup Integral & Output Minimum, Maximum Values
   * @{
   */
+#define INTEGRAL_ID_MAX                   12.0f
+#define INTEGRAL_ID_MIN                   -12.0f
+#define INTEGRAL_IQ_MAX                   12.0f
+#define INTEGRAL_IQ_MIN                   -12.0f
+#define INTEGRAL_VEL_MAX                  1.0f
+#define INTEGRAL_VEL_MIN                  -1.0f
+
 #define OUTPUT_ID_MAX                     12.0f
 #define OUTPUT_ID_MIN                     -12.0f
 #define OUTPUT_IQ_MAX                     12.0f

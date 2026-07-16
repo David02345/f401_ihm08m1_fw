@@ -37,6 +37,9 @@ void bspInit(void);
 void delay(uint32_t ms);
 uint32_t millis(void);
 void Error_Handler(void);
-
+bool microsInit(void);
+uint32_t micros(void);
+uint32_t cycleGet(void);
+uint32_t cycleGetFreq(void);
 
 #endif /* SRC_BSP_BSP_H_ */

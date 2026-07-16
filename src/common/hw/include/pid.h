@@ -17,11 +17,16 @@ typedef struct
   float kp;
   float ki;
   float kd;
+
   float integral;
   float prev_error;
+
   float out_min;
   float out_max;
   float output;
+
+  float integral_min;
+  float integral_max;
 } pid_ctrl_t;
 
 

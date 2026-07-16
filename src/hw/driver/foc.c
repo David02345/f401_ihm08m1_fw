@@ -139,9 +139,9 @@ void focRunOpenLoopVoltage(float vd, float vq, float theta_e, float vbus, motor_
 
   focInvPark(v_dq.d, v_dq.q, theta_e, &v_ab);
 
-#if defined(_USE_FOC_SVPWM)
+#if _USE_FOC_SVPWM
   svpwmGenerate(v_ab.alpha, v_ab.beta, vbus, duty);
-#elif defined (_USE_FOC_SPWM)
+#elif _USE_FOC_SPWM
   focGenerateSPWM(v_ab.alpha, v_ab.beta, vbus, duty);
 #else
   duty->u = 0.5f;

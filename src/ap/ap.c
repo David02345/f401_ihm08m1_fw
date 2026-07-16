@@ -25,7 +25,8 @@ void apMain(void)
   motorStart();
 
   delay(500);
-  motorOpenLoopStart();
+
+  pwmEnableOutput();
 
   prev_adc_count = adcGetCurrentUpdateCount();
 

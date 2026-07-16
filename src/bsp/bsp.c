@@ -17,6 +17,8 @@ void bspInit(void)
   HAL_Init();
   SystemClock_Config();
 
+  microsInit();
+
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
@@ -51,6 +53,36 @@ int __io_putchar(int ch)
   uartWrite(_DEF_UART1, (uint8_t *)&ch, 1);
   return 1;
 }
+
+static uint32_t dwt_cycles_per_us = 84;
+
+bool microsInit(void)
+{
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+
+  DWT->CYCCNT = 0;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+  dwt_cycles_per_us = HAL_RCC_GetHCLKFreq() / 1000000U;
+
+  return (DWT->CTRL & DWT_CTRL_CYCCNTENA_Msk) != 0;
+}
+
+uint32_t micros(void)
+{
+  return DWT->CYCCNT / dwt_cycles_per_us;
+}
+
+uint32_t cycleGet(void)
+{
+  return DWT->CYCCNT;
+}
+
+uint32_t cycleGetFreq(void)
+{
+  return HAL_RCC_GetHCLKFreq();
+}
+
 
 
 
