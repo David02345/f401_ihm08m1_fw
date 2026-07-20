@@ -18,26 +18,21 @@ static pid_ctrl_t pi_id;
 static pid_ctrl_t pi_iq;
 static pid_ctrl_t pi_spd;
 
-
 static volatile float motor_vbus    = 0.0f;
 static uint16_t motor_speed_cmd_raw = 0;
 static uint16_t motor_temp_raw      = 0;
 
-
-
-#if _USE_MOTOR_SPEED_LOOP
+#if MOTOR_CONTROL_MODE != MOTOR_CONTROL_OPEN_LOOP
 static float speed_w_ref  = 0.0f;
 static float speed_w_meas = 0.0f;
 
 static uint16_t speed_loop_divider = 0;
-#endif
 
-#if _USE_MOTOR_CURRENT_LOOP
 static float current_id_ref = 0.0f;
 static float current_iq_ref = 0.0f;
 #endif
 
-#if _USE_MOTOR_OPENLOOP
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 static float open_loop_theta_e = 0.0f;
 static float open_loop_speed_e = 0.0f;
 static float open_loop_vd = 0.0f;
@@ -51,17 +46,17 @@ bool motorInit(void)
   motor_state = MOTOR_STATE_IDLE;
   motor_fault = MOTOR_FAULT_NONE;
 
-  if(pidInit(&pi_id, CUR_KP, CUR_KI, CUR_KD, OUTPUT_ID_MIN, OUTPUT_ID_MAX) != true)
+  if(pidInit(&pi_id, CUR_KP, CUR_KI, CUR_KD, OUTPUT_VD_REF_MIN, OUTPUT_VD_REF_MAX) != true)
   {
     ret = false;
     motor_state = MOTOR_STATE_FAULT;
   }
-  if(pidInit(&pi_iq, CUR_KP, CUR_KI, CUR_KD, OUTPUT_IQ_MIN, OUTPUT_IQ_MAX) != true)
+  if(pidInit(&pi_iq, CUR_KP, CUR_KI, CUR_KD, OUTPUT_VQ_REF_MIN, OUTPUT_VQ_REF_MAX) != true)
   {
     ret = false;
     motor_state = MOTOR_STATE_FAULT;
   }
-  if(pidInit(&pi_spd, VEL_KP, VEL_KI, VEL_KD, OUTPUT_VEL_MIN, OUTPUT_VEL_MAX) != true)
+  if(pidInit(&pi_spd, SPD_KP, SPD_KI, SPD_KD, OUTPUT_IQ_REF_MIN, OUTPUT_IQ_REF_MAX) != true)
   {
     ret = false;
     motor_state = MOTOR_STATE_FAULT;
@@ -120,6 +115,18 @@ void motorStart(void)
     return;
   }
 
+  pidReset(&pi_id);
+  pidReset(&pi_iq);
+  pidReset(&pi_spd);
+
+  speed_loop_divider = 0;
+
+  speed_w_ref = 0.0f;
+  speed_w_meas = 0.0f;
+
+  current_id_ref = 0.0f;
+  current_iq_ref = 0.0f;
+
   adcInjectedStart();
   pwmStart();
 
@@ -129,23 +136,23 @@ void motorStart(void)
     return;
   }
 
-#if _USE_MOTOR_SPEED_LOOP
-    speed_w_ref    = 0.0f;
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
 
-    motor_state = MOTOR_STATE_SPEED_LOOP;
-#elif _USE_MOTOR_CURRENT_LOOP
-    current_id_ref = 0.0f;
-    current_iq_ref = 0.0f;
+  motor_state = MOTOR_STATE_SPEED_LOOP;
 
-    motor_state = MOTOR_STATE_CURRENT_LOOP;
-#elif _USE_MOTOR_OPENLOOP
-    open_loop_theta_e = 0.0f;
-    open_loop_speed_e = 0.5f;
-    open_loop_vd = 0.0f;
-    open_loop_vq = OPEN_LOOP_TARGET_VQ;
-    pwmSetDuty(0.5, 0.5, 0.5);
+#elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
 
-    motor_state = MOTOR_STATE_OPEN_LOOP;
+  motor_state = MOTOR_STATE_CURRENT_LOOP;
+
+#elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
+
+  open_loop_theta_e = 0.0f;
+  open_loop_speed_e = 0.5f;
+  open_loop_vd = 0.0f;
+  open_loop_vq = OPEN_LOOP_TARGET_VQ;
+
+  motor_state = MOTOR_STATE_OPEN_LOOP;
+
 #endif
 }
 
@@ -155,30 +162,26 @@ void motorStop(void)
   adcInjectedStop();
   pwmStop();
 
+  pidReset(&pi_id);
+  pidReset(&pi_iq);
+  pidReset(&pi_spd);
+
+  speed_loop_divider = 0;
+
+  speed_w_ref = 0.0f;
+  speed_w_meas = 0.0f;
+
+  current_id_ref = 0.0f;
+  current_iq_ref = 0.0f;
+
   motor_state = MOTOR_STATE_IDLE;
 }
 
-#if _USE_MOTOR_SPEED_LOOP
-static void motorSpeedLoop(void)
-{
-  if (motor_state != MOTOR_STATE_SPEED_LOOP)
-  {
-    return;
-  }
-  speed_w_meas = hallGetMechanicalSpeed();
 
-  current_id_ref = 0;
-  current_iq_ref = piController(&pi_spd, speed_w_ref, speed_w_meas, SPD_DT);
-}
-#endif
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) || (MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED)
 
-#if _USE_MOTOR_CURRENT_LOOP
 static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 {
-  if (motor_state != MOTOR_STATE_CURRENT_LOOP)
-  {
-    return;
-  }
   motor_abc_f_t i_abc;
   motor_alphabeta_t i_ab;
   motor_dq_t i_dq;
@@ -196,14 +199,29 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
   focSetVoltageLimit(&v_dq, MOTOR_VLIMIT);
 
   focInvPark(v_dq.d, v_dq.q, theta_e, &v_ab);
+#if _USE_FOC_SPWM
   focGenerateSPWM(v_ab.alpha, v_ab.beta, motor_vbus, &motor_duty);
-
+#elif _USE_FOC_SVPWM
   pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
+#endif
+}
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
+static void motorSpeedLoop(void)
+{
+  if (motor_state != MOTOR_STATE_SPEED_LOOP)
+  {
+    return;
+  }
+  speed_w_meas = hallGetMechanicalSpeed();
+
+  current_id_ref = 0;
+  current_iq_ref = piController(&pi_spd, speed_w_ref, speed_w_meas, SPD_DT);
+  current_iq_ref = clampFloat(current_iq_ref, OUTPUT_VQ_REF_MIN, OUTPUT_VQ_REF_MAX);
 }
 #endif
+#endif
 
-
-#if _USE_MOTOR_OPENLOOP
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 
 static void motorOpenLoop(void)
 {
@@ -217,41 +235,57 @@ static void motorOpenLoop(void)
     pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
   }
 }
-static void motorOpenLoop
 #endif
 
 void motorControlUpdate(void)
 {
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
   float theta_e;
 
-  if (motor_state != MOTOR_STATE_CURRENT_LOOP &&
-      motor_state != MOTOR_STATE_SPEED_LOOP)
+  if (motor_state != MOTOR_STATE_SPEED_LOOP)
   {
       return;
   }
 
 #if _USE_HALL_SENSOR
   theta_e = hallGetElectricalAngle();
-#else
+#elif _USE_ENCODER
   theta_e = 0.0f;
 #endif
 
-#if _USE_MOTOR_SPEED_LOOP
-  if (motor_state == MOTOR_STATE_SPEED_LOOP)
-  {
-    speed_loop_divider++;
+  speed_loop_divider++;
 
-    if (speed_loop_divider >= SPEED_LOOP_DIVIDER)
-    {
-      speed_loop_divider = 0;
-      motorSpeedLoop();       // iq_ref만 갱신
-    }
+  if (speed_loop_divider >= SPEED_LOOP_DIVIDER)
+  {
+    speed_loop_divider = 0;
+    motorSpeedLoop();       // iq_ref만 갱신
   }
+
+  motorCurrentLoop(current_id_ref, current_iq_ref, theta_e);
+
+#elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
+  float theta_e;
+
+  if (motor_state != MOTOR_STATE_CURRENT_LOOP)
+  {
+      return;
+  }
+
+#if _USE_HALL_SENSOR
+  theta_e = hallGetElectricalAngle();
+#elif _USE_ENCODER
+  theta_e = 0.0f;
 #endif
-#if _USE_MOTOR_CURRENT_LOOP
-   motorCurrentLoop(current_id_ref, current_iq_ref, theta_e);
+
+  motorCurrentLoop(current_id_ref, current_iq_ref, theta_e);
+
 #endif
-#if _USE_MOTOR_OPENLOOP
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
+  if (motor_state != MOTOR_STATE_OPEN_LOOP)
+  {
+      return;
+  }
+
   motorOpenLoop();
 #endif
 }
@@ -263,11 +297,15 @@ void motorLowSpeedTask(void)
     return;
   }
 
+#if _USE_HALL_SENSOR
+    hallUpdateTimeout();
+#endif
+
   if (pwmIsBreakFault())
-   {
-     motorSetFault(MOTOR_FAULT_BKIN);
-     return;
-   }
+  {
+    motorSetFault(MOTOR_FAULT_BKIN);
+    return;
+  }
 
   if(adcUpdateRegular() != true)
   {

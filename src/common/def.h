@@ -30,9 +30,9 @@
 #define CUR_KP                            0.2f
 #define CUR_KI                            50.0f
 #define CUR_KD                            0.0f
-#define VEL_KP                            0.05f
-#define VEL_KI                            1.0f
-#define VEL_KD                            0.0f
+#define SPD_KP                            0.05f
+#define SPD_KI                            1.0f
+#define SPD_KD                            0.0f
 #define POS_KP                            2.0f
 #define POS_KI                            0.0f
 #define POS_KD                            0.1f
@@ -81,14 +81,14 @@
 #define INTEGRAL_VEL_MAX                  1.0f
 #define INTEGRAL_VEL_MIN                  -1.0f
 
-#define OUTPUT_ID_MAX                     12.0f
-#define OUTPUT_ID_MIN                     -12.0f
-#define OUTPUT_IQ_MAX                     12.0f
-#define OUTPUT_IQ_MIN                     -12.0f
-#define OUTPUT_VEL_MAX                    1.0f
-#define OUTPUT_VEL_MIN                    -1.0f
-#define OUTPUT_POS_MAX                    10.0f
-#define OUTPUT_POS_MIN                    -10.0f
+#define OUTPUT_VD_REF_MAX                 12.0f
+#define OUTPUT_VD_REF_MIN                 -12.0f
+#define OUTPUT_VQ_REF_MAX                 12.0f
+#define OUTPUT_VQ_REF_MIN                 -12.0f
+#define OUTPUT_IQ_REF_MAX                 1.0f
+#define OUTPUT_IQ_REF_MIN                 -1.0f
+#define OUTPUT_SPD_REF_MAX                10.0f
+#define OUTPUT_SPD_REF_MIN                -10.0f
 /**
   * @}
   */
@@ -109,6 +109,17 @@
 #define GEAR_RATIO                        25
 #define GEAR_EFFICIENCY                   0.94
 #define MOTOR_POLE_PAIRS                  4
+/**
+  * @}
+  */
+
+/** @defgroup Hall Sensor Parameters
+  * @{
+  */
+#define HALL_SECTOR_ANGLE_E   (PI / 3.0f)
+#define HALL_SPEED_LPF_ALPHA  0.2f
+#define HALL_STOP_TIMEOUT_US  200000U
+#define HALL_ELEC_OFFSET  0.0f
 /**
   * @}
   */

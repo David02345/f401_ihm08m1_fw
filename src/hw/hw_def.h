@@ -13,11 +13,13 @@
 #include "bsp.h"
 
 
+#define MOTOR_CONTROL_OPEN_LOOP           0
+#define MOTOR_CONTROL_CURRENT             1
+#define MOTOR_CONTROL_SPEED               2
+#define MOTOR_CONTROL_POSITION            3
 
-#define _USE_MOTOR_CURRENT_LOOP           1
-#define _USE_MOTOR_SPEED_LOOP             1
-#define _USE_MOTOR_POSITION_LOOP          0
-#define _USE_MOTOR_OPENLOOP               0
+#define MOTOR_CONTROL_MODE                MOTOR_CONTROL_SPEED
+
 
 #define _USE_MOTOR_SIXSTEP                0
 #define _USE_FOC_SVPWM                    0

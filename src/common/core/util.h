@@ -62,6 +62,4 @@ static inline  float wrapFloat(float theta, float min, float max)
   return theta;
 }
 
-
-
 #endif /* SRC_COMMON_CORE_UTIL_H_ */

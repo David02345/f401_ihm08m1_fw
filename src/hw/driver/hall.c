@@ -7,9 +7,6 @@
 
 #include "hall.h"
 
-#define HALL_SECTOR_ANGLE_E   (PI / 3.0f)
-#define HALL_SPEED_LPF_ALPHA  0.2f
-#define HALL_STOP_TIMEOUT_US  200000U
 
 static volatile uint32_t hall_last_cycle = 0;
 
@@ -29,6 +26,7 @@ static volatile bool hall_valid = false;
 
 static uint8_t hallReadState(void);
 static int8_t hallGetSector(uint8_t state);
+static float hallSectorToElectricalAngle(int8_t sector);
 
 bool hallInit(void)
 {
@@ -89,6 +87,8 @@ void hallUpdate(void)
 
   hall_state = state;
   hall_sector = sector;
+
+  hall_angle_e = hallSectorToElectricalAngle(sector);
 
   if (hall_prev_sector >= 0 && hall_last_cycle != 0)
   {
@@ -195,4 +195,13 @@ float hallGetMechanicalAngle(void)
   hall_angle_m += (hall_speed_m * SPD_DT);
 
   return hall_angle_m;
+}
+
+static float hallSectorToElectricalAngle(int8_t sector)
+{
+    float theta;
+
+    theta = (float)sector * HALL_SECTOR_ANGLE_E + HALL_ELEC_OFFSET;
+
+    return wrapFloat(theta, 0.0f, 2.0f * PI);
 }
