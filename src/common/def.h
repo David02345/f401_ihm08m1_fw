@@ -97,8 +97,9 @@
   * @{
   */
 #define MOTOR_VBUS                        24
-#define MOTOR_VLIMIT                      13.86
 #define MOTOR_VBUS_MIN                    12
+#define MOTOR_VLIMIT_SPWM                 12
+#define MOTOR_VLIMIT_SVPWM                13.86
 /**
   * @}
   */

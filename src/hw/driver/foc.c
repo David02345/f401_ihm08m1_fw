@@ -89,6 +89,7 @@ void focSetVoltageLimit(motor_dq_t *v_dq, float v_limit)
     v_dq->q *= scale;
   }
 }
+#if _USE_FOC_SPWM
 void focGenerateSPWM(float valpha, float vbeta, float vbus, motor_duty_t *duty)
 {
   motor_abc_f_t v_abc;
@@ -115,6 +116,15 @@ void focGenerateSPWM(float valpha, float vbeta, float vbus, motor_duty_t *duty)
   duty->v = clampFloat(duty->v, 0.0f, 1.0f);
   duty->w = clampFloat(duty->w, 0.0f, 1.0f);
 }
+
+#elif _USE_FOC_SVPWM
+void focGenerateSVPWM(float valpha, float vbeta, float vbus, motor_duty_t *duty)
+{
+
+}
+#endif
+
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 void focRunOpenLoopVoltage(float vd, float vq, float theta_e, float vbus, motor_duty_t *duty)
 {
   motor_dq_t v_dq;
@@ -140,7 +150,7 @@ void focRunOpenLoopVoltage(float vd, float vq, float theta_e, float vbus, motor_
   focInvPark(v_dq.d, v_dq.q, theta_e, &v_ab);
 
 #if _USE_FOC_SVPWM
-  svpwmGenerate(v_ab.alpha, v_ab.beta, vbus, duty);
+  focGenerateSVPWM(v_ab.alpha, v_ab.beta, vbus, duty);
 #elif _USE_FOC_SPWM
   focGenerateSPWM(v_ab.alpha, v_ab.beta, vbus, duty);
 #else
@@ -150,3 +160,4 @@ void focRunOpenLoopVoltage(float vd, float vq, float theta_e, float vbus, motor_
 
 #endif
 }
+#endif

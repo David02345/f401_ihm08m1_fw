@@ -80,8 +80,19 @@ void hallUpdate(void)
 
   if (sector < 0)
   {
+    hall_valid = false;
+    hall_speed_e = 0.0f;
+    hall_speed_m = 0.0f;
+    hall_dir = 0;
     return;
   }
+
+  if (sector == hall_sector)
+  {
+    return;
+  }
+
+  hall_valid = true;
 
   uint32_t now_cycle = cycleGet();
 

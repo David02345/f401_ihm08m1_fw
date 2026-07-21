@@ -25,6 +25,7 @@ void focInvClarke(float alpha, float beta, motor_abc_f_t *out);
 
 void focSetVoltageLimit(motor_dq_t *v_dq, float v_limit);
 void focGenerateSPWM(float valpha, float vbeta, float vbus, motor_duty_t *duty);
+void focGenerateSVPWM(float valpha, float vbeta, float vbus, motor_duty_t *duty);
 void focRunOpenLoopVoltage(float vd, float vq, float theta_e, float vbus, motor_duty_t *duty);
 
 #endif
