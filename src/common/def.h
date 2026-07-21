@@ -19,7 +19,7 @@
 /** @defgroup Math Utils
   * @{
   */
-#define PI 3.14159265358979323846
+#define PI                                3.14159265358979323846
 /**
   * @}
   */
@@ -55,17 +55,18 @@
   */
 #define PWM_ARR                           2099
 #define PWM_DEADTIME                      80
-#define PWM_ADC_BLANK_TICKS               150U
+#define PWM_ADC_BLANK_TICKS               150
 #define PWM_ADC_TRIG_PULSE                (PWM_ARR - PWM_ADC_BLANK_TICKS)
 #define PWM_ADC_INIT_PULSE                1049
 /**
   * @}
   */
 
-/** @defgroup Speed loop / Current loop divider
+/** @defgroup Speed Loop Parameters
   * @{
   */
-#define SPEED_LOOP_DIVIDER  20U
+#define SPEED_LOOP_DIVIDER                20
+#define SPEED_CMD_DEADBAND_RAW            30
 /**
   * @}
   */
@@ -117,10 +118,10 @@
 /** @defgroup Hall Sensor Parameters
   * @{
   */
-#define HALL_SECTOR_ANGLE_E   (PI / 3.0f)
-#define HALL_SPEED_LPF_ALPHA  0.2f
-#define HALL_STOP_TIMEOUT_US  200000U
-#define HALL_ELEC_OFFSET  0.0f
+#define HALL_SECTOR_ANGLE_E               (PI / 3.0f)
+#define HALL_SPEED_LPF_ALPHA              0.2f
+#define HALL_STOP_TIMEOUT_US              200000U
+#define HALL_ELEC_OFFSET                  0.0f
 /**
   * @}
   */

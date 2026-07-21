@@ -34,10 +34,10 @@ void apMain(void)
   {
     uint32_t now = millis();
 
-    if (now - pre_time_motor_slow >= 10)
+    if (now - pre_time_motor_slow >= 10U)
     {
       pre_time_motor_slow = now;
-      //motorLowSpeedTask();
+      motorLowSpeedTask();
     }
 
     if (now - pre_time_debug >= 500)

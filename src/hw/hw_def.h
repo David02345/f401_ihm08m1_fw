@@ -22,14 +22,17 @@
 
 
 #define _USE_MOTOR_SIXSTEP                0
+#define _USE_MOTOR_FOC                    1
 #define _USE_FOC_SVPWM                    0
 #define _USE_FOC_SPWM                     1
-#define _USE_MOTOR_FOC                    1
+
+#if (_USE_FOC_SPWM + _USE_FOC_SVPWM) != 1
+#error "Enable exactly one modulation method"
+#endif
 
 
 #define _USE_HALL_SENSOR                  1
 #define _USE_ENCODER                      0
-
 
 
 #define _USE_HW_ADC

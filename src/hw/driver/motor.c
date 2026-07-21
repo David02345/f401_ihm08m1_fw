@@ -19,7 +19,7 @@ static pid_ctrl_t pi_iq;
 static pid_ctrl_t pi_spd;
 
 static volatile float motor_vbus    = 0.0f;
-static uint16_t motor_speed_cmd_raw = 0;
+static volatile uint16_t motor_speed_cmd_raw = 0;
 static uint16_t motor_temp_raw      = 0;
 
 static float speed_w_ref  = 0.0f;
@@ -79,11 +79,22 @@ bool motorInit(void)
     ret = false;
     motor_state = MOTOR_STATE_FAULT;
   }
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) || (MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED)
+#if _USE_HALL_SENSOR
   if(hallInit() != true)
   {
     ret = false;
     motor_state = MOTOR_STATE_FAULT;
   }
+#elif _USE_ENCODER
+  if(encoderInit() != true)
+  {
+    ret = false;
+    motor_state = MOTOR_STATE_FAULT;
+  }
+#endif
+#endif
   if (ret != true)
   {
     motorSetFault(MOTOR_FAULT_INIT_FAIL);
@@ -240,19 +251,36 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 #endif
   pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
 }
+#endif
+
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
 static void motorSpeedLoop(void)
 {
+  float ratio;
+
   if (motor_state != MOTOR_STATE_SPEED_LOOP)
   {
     return;
   }
+
   speed_w_meas = hallGetMechanicalSpeed();
-  speed_w_ref = motor_speed_cmd_raw;
   current_id_ref = 0;
+
+  if (motor_speed_cmd_raw <= SPEED_CMD_DEADBAND_RAW)
+  {
+      speed_w_ref = 0.0f;
+  }
+  else
+  {
+    ratio = (float)(motor_speed_cmd_raw - SPEED_CMD_DEADBAND_RAW) /
+            (float)(4095U - SPEED_CMD_DEADBAND_RAW);
+    ratio = clampFloat(ratio, 0.0f, 1.0f);
+
+    speed_w_ref = ratio * OUTPUT_SPD_REF_MAX;;
+  }
+
   current_iq_ref = piController(&pi_spd, speed_w_ref, speed_w_meas, SPD_DT);
 }
-#endif
 #endif
 
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
@@ -284,7 +312,9 @@ void motorControlUpdate(void)
 #if _USE_HALL_SENSOR
   theta_e = hallGetElectricalAngle();
 #elif _USE_ENCODER
-  theta_e = 0.0f;
+  theta_e = encoderGetElectricalAngle();
+#else
+#error "HALL SENSOR / ENCODER ERROR"
 #endif
 
   speed_loop_divider++;
@@ -308,7 +338,7 @@ void motorControlUpdate(void)
 #if _USE_HALL_SENSOR
   theta_e = hallGetElectricalAngle();
 #elif _USE_ENCODER
-  theta_e = 0.0f;
+  theta_e = encoderGetElectricalAngle();
 #endif
 
   motorCurrentLoop(current_id_ref, current_iq_ref, theta_e);
