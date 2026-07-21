@@ -205,26 +205,21 @@ bool adcUpdateRegular(void)
 
   if (HAL_ADC_PollForConversion(&hadc1, 10) != HAL_OK)
   {
-    HAL_ADC_Stop(&hadc1);
     return false;
   }
   adc_vbus_raw = HAL_ADC_GetValue(&hadc1);
 
   if (HAL_ADC_PollForConversion(&hadc1, 10) != HAL_OK)
   {
-    HAL_ADC_Stop(&hadc1);
     return false;
   }
   adc_speed_raw = HAL_ADC_GetValue(&hadc1);
 
   if (HAL_ADC_PollForConversion(&hadc1, 10) != HAL_OK)
   {
-    HAL_ADC_Stop(&hadc1);
     return false;
   }
   adc_temp_raw = HAL_ADC_GetValue(&hadc1);
-
-  HAL_ADC_Stop(&hadc1);
 
   return true;
 }

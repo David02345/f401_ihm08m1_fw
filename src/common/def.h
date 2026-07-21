@@ -67,6 +67,9 @@
   */
 #define SPEED_LOOP_DIVIDER                20
 #define SPEED_CMD_DEADBAND_RAW            30
+#define SPEED_CMD_DEADBAND_RAW            30
+#define SPEED_RAMP_UP                     5.0f       // rad/s2
+#define SPEED_RAMP_DOWN                   10.0f      // rad/s2
 /**
   * @}
   */

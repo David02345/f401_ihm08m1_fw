@@ -32,7 +32,21 @@ bool hallInit(void)
 {
   hall_state = hallReadState();
   hall_sector = hallGetSector(hall_state);
-  hall_valid = (hall_sector >= 0);
+
+  hall_speed_e = 0.0f;
+  hall_speed_m = 0.0f;
+  hall_dir = 0;
+
+  if (hall_sector < 0)
+  {
+    hall_valid = false;
+    return false;
+  }
+
+  hall_valid = true;
+  hall_prev_sector = hall_sector;
+  hall_angle_e = hallSectorToElectricalAngle(hall_sector);
+  hall_last_cycle = cycleGet();
 
   return hall_valid;
 }
@@ -59,7 +73,7 @@ static uint8_t hallReadState(void)
   return state;
 }
 
-int8_t hallGetSector(uint8_t hall_state)
+static int8_t hallGetSector(uint8_t hall_state)
 {
   switch (hall_state)
   {

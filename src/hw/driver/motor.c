@@ -24,6 +24,7 @@ static uint16_t motor_temp_raw      = 0;
 
 static float speed_w_ref  = 0.0f;
 static float speed_w_meas = 0.0f;
+static float speed_w_target = 0.0f;
 
 static uint16_t speed_loop_divider = 0;
 
@@ -117,6 +118,8 @@ void motorStart(void)
   }
 
   motor_vbus = adcGetVbusVoltage();
+  motor_speed_cmd_raw = adcGetSpeedRaw();
+  motor_temp_raw = adcGetTempRaw();
 
   if(motor_vbus < MOTOR_VBUS_MIN)
   {
@@ -130,6 +133,7 @@ void motorStart(void)
 
   speed_loop_divider = 0;
 
+  speed_w_target = 0.0f;
   speed_w_ref = 0.0f;
   speed_w_meas = 0.0f;
 
@@ -177,6 +181,7 @@ void motorStop(void)
 
   speed_loop_divider = 0;
 
+  speed_w_target = 0.0f;
   speed_w_ref = 0.0f;
   speed_w_meas = 0.0f;
 
@@ -257,14 +262,19 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 static void motorSpeedLoop(void)
 {
   float ratio;
+  float delta;
+  float ramp_step;
 
   if (motor_state != MOTOR_STATE_SPEED_LOOP)
   {
     return;
   }
 
+#if _USE_HALL_SENSOR
   speed_w_meas = hallGetMechanicalSpeed();
-  current_id_ref = 0;
+#elif _USE_ENCODER
+  speed_w_meas = encoderGetMechanicalSpeed();
+#endif
 
   if (motor_speed_cmd_raw <= SPEED_CMD_DEADBAND_RAW)
   {
@@ -279,6 +289,38 @@ static void motorSpeedLoop(void)
     speed_w_ref = ratio * OUTPUT_SPD_REF_MAX;;
   }
 
+  delta = speed_w_target - speed_w_ref;
+
+  if (delta > 0.0f)
+  {
+    ramp_step = SPEED_RAMP_UP * SPD_DT;
+
+    if (delta > ramp_step)
+    {
+      speed_w_ref += ramp_step;
+    }
+    else
+    {
+      speed_w_ref = speed_w_target;
+    }
+  }
+  else if (delta < 0.0f)
+  {
+    ramp_step = SPEED_RAMP_DOWN * SPD_DT;
+
+    if (delta < -ramp_step)
+    {
+      speed_w_ref -= ramp_step;
+    }
+    else
+    {
+      speed_w_ref = speed_w_target;
+    }
+  }
+
+  speed_w_ref = clampFloat(speed_w_ref, 0.0f, OUTPUT_SPD_REF_MAX);
+
+  current_id_ref = 0;
   current_iq_ref = piController(&pi_spd, speed_w_ref, speed_w_meas, SPD_DT);
 }
 #endif
@@ -366,6 +408,13 @@ void motorSetFault(motor_fault_t fault)
   pidReset(&pi_id);
   pidReset(&pi_iq);
   pidReset(&pi_spd);
+
+  speed_w_target = 0.0f;
+  speed_w_ref = 0.0f;
+  speed_w_meas = 0.0f;
+
+  current_id_ref = 0.0f;
+  current_iq_ref = 0.0f;
 
   motor_fault = fault;
   motor_state = MOTOR_STATE_FAULT;
