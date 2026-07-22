@@ -88,6 +88,8 @@
 #define OUTPUT_VD_REF_MIN                 -12.0f
 #define OUTPUT_VQ_REF_MAX                 12.0f
 #define OUTPUT_VQ_REF_MIN                 -12.0f
+#define OUTPUT_ID_REF_MAX                 0.5f
+#define OUTPUT_ID_REF_MIN                 -0.5f
 #define OUTPUT_IQ_REF_MAX                 1.0f
 #define OUTPUT_IQ_REF_MIN                 -1.0f
 #define OUTPUT_SPD_REF_MAX                10.0f
@@ -101,8 +103,8 @@
   */
 #define MOTOR_VBUS                        24
 #define MOTOR_VBUS_MIN                    12
-#define MOTOR_VLIMIT_SPWM                 12
-#define MOTOR_VLIMIT_SVPWM                13.86
+#define MOTOR_VLIMIT_SPWM                 MOTOR_VBUS * 0.5f
+#define MOTOR_VLIMIT_SVPWM                MOTOR_VBUS * 0.577350269f
 /**
   * @}
   */

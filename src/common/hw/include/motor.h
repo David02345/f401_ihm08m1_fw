@@ -43,8 +43,8 @@ bool motorInit(void);
 void motorStart(void);
 void motorStop(void);
 
-void motorControlUpdate(void);
 void motorLowSpeedTask(void);
+void motorControlUpdate(void);
 
 void motorSetFault(motor_fault_t fault);
 void motorClearFault(void);
@@ -53,5 +53,6 @@ motor_state_t motorGetState(void);
 motor_fault_t motorGetFault(void);
 float motorGetVbus(void);
 
+void motorSetCurrentReference(float id_ref, float iq_ref);
 
 #endif /* SRC_COMMON_HW_INCLUDE_MOTOR_H_ */
