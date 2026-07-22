@@ -278,7 +278,7 @@ static void motorSpeedLoop(void)
 
   if (motor_speed_cmd_raw <= SPEED_CMD_DEADBAND_RAW)
   {
-      speed_w_ref = 0.0f;
+    speed_w_target = 0.0f;
   }
   else
   {
@@ -286,7 +286,7 @@ static void motorSpeedLoop(void)
             (float)(4095U - SPEED_CMD_DEADBAND_RAW);
     ratio = clampFloat(ratio, 0.0f, 1.0f);
 
-    speed_w_ref = ratio * OUTPUT_SPD_REF_MAX;;
+    speed_w_target = ratio * OUTPUT_SPD_REF_MAX;;
   }
 
   delta = speed_w_target - speed_w_ref;
@@ -320,13 +320,12 @@ static void motorSpeedLoop(void)
 
   speed_w_ref = clampFloat(speed_w_ref, 0.0f, OUTPUT_SPD_REF_MAX);
 
-  current_id_ref = 0;
+  current_id_ref = 0.0f;
   current_iq_ref = piController(&pi_spd, speed_w_ref, speed_w_meas, SPD_DT);
 }
 #endif
 
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
-
 static void motorOpenLoop(void)
 {
   if(motor_state == MOTOR_STATE_OPEN_LOOP)
@@ -395,8 +394,6 @@ void motorControlUpdate(void)
   motorOpenLoop();
 #endif
 }
-
-
 
 void motorSetFault(motor_fault_t fault)
 {

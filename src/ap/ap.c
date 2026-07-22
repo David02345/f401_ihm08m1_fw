@@ -26,7 +26,22 @@ void apMain(void)
 
   delay(500);
 
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
+if (motorGetState() == MOTOR_STATE_SPEED_LOOP)
+{
   pwmEnableOutput();
+}
+#elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
+if (motorGetState() == MOTOR_STATE_CURRENT_LOOP)
+{
+  pwmEnableOutput();
+}
+#elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
+if (motorGetState() == MOTOR_STATE_OPEN_LOOP)
+{
+  pwmEnableOutput();
+}
+#endif
 
   prev_adc_count = adcGetCurrentUpdateCount();
 
