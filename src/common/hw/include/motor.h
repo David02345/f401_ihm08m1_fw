@@ -16,29 +16,6 @@
 #include "hall.h"
 
 
-typedef enum
-{
-  MOTOR_STATE_IDLE             = 0x00U,
-  MOTOR_STATE_READY            = 0x01U,
-  MOTOR_STATE_OPEN_LOOP        = 0x02U,
-  MOTOR_STATE_CURRENT_LOOP     = 0x03U,
-  MOTOR_STATE_SPEED_LOOP       = 0x04U,
-  MOTOR_STATE_POSITION_LOOP    = 0x05U,
-  MOTOR_STATE_FAULT            = 0x06U,
-} motor_state_t;
-
-typedef enum
-{
-  MOTOR_FAULT_NONE             = 0x00U,
-  MOTOR_FAULT_INIT_FAIL        = 0x01U,
-  MOTOR_FAULT_ADC_OFFSET_FAIL  = 0x02U,
-  MOTOR_FAULT_VBUS_LOW         = 0x03U,
-  MOTOR_FAULT_ADC_REGULAR_FAIL = 0x04U,
-  MOTOR_FAULT_OVERCURRENT      = 0x05U,
-  MOTOR_FAULT_OPEN_LOOP_FAIL   = 0x06U,
-  MOTOR_FAULT_BKIN             = 0x07U,
-} motor_fault_t;
-
 bool motorInit(void);
 void motorStart(void);
 void motorStop(void);
@@ -49,9 +26,7 @@ void motorControlUpdate(void);
 void motorSetFault(motor_fault_t fault);
 void motorClearFault(void);
 
-motor_state_t motorGetState(void);
-motor_fault_t motorGetFault(void);
-float motorGetVbus(void);
+bool motorGetMonitor(motor_monitor_t *monitor);
 
 void motorSetCurrentReference(float id_ref, float iq_ref);
 

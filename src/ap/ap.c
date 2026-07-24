@@ -21,13 +21,17 @@ void apMain(void)
 
   uint32_t prev_adc_count = 0;
 
+  motor_monitor_t monitor;
+
+  motorGetMonitor(&monitor);
+
   delay(1000);
   motorStart();
 
   delay(500);
 
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
-if (motorGetState() == MOTOR_STATE_SPEED_LOOP)
+if (monitor.state == MOTOR_STATE_SPEED_LOOP)
 {
   pwmEnableOutput();
 }
@@ -64,13 +68,17 @@ if (motorGetState() == MOTOR_STATE_OPEN_LOOP)
       prev_adc_count = adc_count;
 
       uint32_t adc_hz = adc_diff * 2U;   // 500ms 기준이므로 x2
-      int32_t vbus_mv = (int32_t)(motorGetVbus() * 1000.0f);
+      int32_t vbus_mv = (int32_t)(monitor.vbus * 1000.0f);
 
       uartPrintf(_DEF_UART1, "ADC Count : %lu\r\n", (unsigned long)adc_count);
       uartPrintf(_DEF_UART1, "ADC Hz    : %lu\r\n", (unsigned long)adc_hz);
-      uartPrintf(_DEF_UART1, "State     : %d\r\n", (int)motorGetState());
-      uartPrintf(_DEF_UART1, "Fault     : %d\r\n", (int)motorGetFault());
+      uartPrintf(_DEF_UART1, "State     : %d\r\n", (int)monitor.state);
+      uartPrintf(_DEF_UART1, "Fault     : %d\r\n", (int)monitor.fault);
       uartPrintf(_DEF_UART1, "VBUS      : %ld mV\r\n", (long)vbus_mv);
+      uartPrintf(_DEF_UART1, "Ia        : %ld A\r\n", (long)monitor.ia);
+      uartPrintf(_DEF_UART1, "Ib        : %ld A\r\n", (long)monitor.ib);
+      uartPrintf(_DEF_UART1, "Ic        : %ld A\r\n", (long)monitor.ic);
+
     }
   }
 }
