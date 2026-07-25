@@ -81,8 +81,8 @@
 #define INTEGRAL_ID_MIN                   -12.0f
 #define INTEGRAL_IQ_MAX                   12.0f
 #define INTEGRAL_IQ_MIN                   -12.0f
-#define INTEGRAL_VEL_MAX                  1.0f
-#define INTEGRAL_VEL_MIN                  -1.0f
+#define INTEGRAL_SPD_MAX                  1.0f
+#define INTEGRAL_SPD_MIN                  -1.0f
 
 #define OUTPUT_VD_REF_MAX                 12.0f
 #define OUTPUT_VD_REF_MIN                 -12.0f

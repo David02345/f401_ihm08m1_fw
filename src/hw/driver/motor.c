@@ -31,21 +31,8 @@ static uint16_t speed_loop_divider = 0;
 static float current_id_ref = 0.0f;
 static float current_iq_ref = 0.0f;
 
-/* -------------- Parameters for Debugging -------------- */
-static volatile float current_ia_meas;
-static volatile float current_ib_meas;
-static volatile float current_ic_meas;
-
-static volatile float current_id_meas;
-static volatile float current_iq_meas;
-
-static volatile float voltage_vd_cmd;
-static volatile float voltage_vq_cmd;
-
-static volatile float motor_theta_e;
-
 static volatile motor_monitor_t motor_monitor;
-/* ------------------------------------------------------ */
+
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 static float open_loop_theta_e = 0.0f;
 static float open_loop_speed_e = 0.0f;
@@ -60,17 +47,17 @@ bool motorInit(void)
   motor_state = MOTOR_STATE_IDLE;
   motor_fault = MOTOR_FAULT_NONE;
 
-  if(pidInit(&pi_id, CUR_KP, CUR_KI, CUR_KD, OUTPUT_VD_REF_MIN, OUTPUT_VD_REF_MAX) != true)
+  if(pidInit(&pi_id, CUR_KP, CUR_KI, CUR_KD, OUTPUT_VD_REF_MIN, OUTPUT_VD_REF_MAX, INTEGRAL_ID_MIN, INTEGRAL_ID_MAX) != true)
   {
     ret = false;
     motor_state = MOTOR_STATE_FAULT;
   }
-  if(pidInit(&pi_iq, CUR_KP, CUR_KI, CUR_KD, OUTPUT_VQ_REF_MIN, OUTPUT_VQ_REF_MAX) != true)
+  if(pidInit(&pi_iq, CUR_KP, CUR_KI, CUR_KD, OUTPUT_VQ_REF_MIN, OUTPUT_VQ_REF_MAX, INTEGRAL_IQ_MIN, INTEGRAL_IQ_MAX) != true)
   {
     ret = false;
     motor_state = MOTOR_STATE_FAULT;
   }
-  if(pidInit(&pi_spd, SPD_KP, SPD_KI, SPD_KD, OUTPUT_IQ_REF_MIN, OUTPUT_IQ_REF_MAX) != true)
+  if(pidInit(&pi_spd, SPD_KP, SPD_KI, SPD_KD, OUTPUT_IQ_REF_MIN, OUTPUT_IQ_REF_MAX ,INTEGRAL_SPD_MIN, INTEGRAL_SPD_MAX) != true)
   {
     ret = false;
     motor_state = MOTOR_STATE_FAULT;
@@ -238,12 +225,7 @@ void motorLowSpeedTask(void)
     return;
   }
   motor_speed_cmd_raw = adcGetSpeedRaw();
-  motor_monitor.speed_cmd_raw = motor_speed_cmd_raw;
-  motor_temp_raw = adcGetTempRaw();
-  motor_monitor.temp_raw = motor_temp_raw;
-
-  motor_monitor.state = motor_state;
-  motor_monitor.fault = motor_fault;
+  motor_temp_raw = adcGetTempRaw();;
 }
 
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) || (MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED)
@@ -274,18 +256,14 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
   v_dq.d = piController(&pi_id, id_ref, i_dq.d, CUR_DT);
   v_dq.q = piController(&pi_iq, iq_ref, i_dq.q, CUR_DT);
 
-  motor_monitor.vd_cmd = v_dq.d;
-  motor_monitor.vq_cmd = v_dq.q;
-
-  motor_monitor.duty_u = motor_duty.u;
-  motor_monitor.duty_v = motor_duty.v;
-  motor_monitor.duty_w = motor_duty.w;
-
 #if _USE_FOC_SPWM
   focSetVoltageLimit(&v_dq, MOTOR_VLIMIT_SPWM);
 #elif _USE_FOC_SVPWM
   focSetVoltageLimit(&v_dq, MOTOR_VLIMIT_SVPWM);
 #endif
+
+  motor_monitor.vd_cmd = v_dq.d;
+  motor_monitor.vq_cmd = v_dq.q;
 
   focInvPark(v_dq.d, v_dq.q, theta_e, &v_ab);
 
@@ -294,6 +272,11 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 #elif _USE_FOC_SVPWM
   focGenerateSVPWM(v_ab.alpha, v_ab.beta, motor_vbus, &motor_duty);
 #endif
+
+  motor_monitor.duty_u = motor_duty.u;
+  motor_monitor.duty_v = motor_duty.v;
+  motor_monitor.duty_w = motor_duty.w;
+
   pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
 }
 #endif
@@ -491,7 +474,6 @@ bool motorGetMonitor(motor_monitor_t *monitor)
 
   monitor->id_ref  = motor_monitor.id_ref;
   monitor->id_meas = motor_monitor.id_meas;
-
   monitor->iq_ref  = motor_monitor.iq_ref;
   monitor->iq_meas = motor_monitor.iq_meas;
 
@@ -500,20 +482,20 @@ bool motorGetMonitor(motor_monitor_t *monitor)
 
   monitor->theta_e = motor_monitor.theta_e;
 
-  monitor->speed_target = motor_monitor.speed_target;
-  monitor->speed_ref    = motor_monitor.speed_ref;
-  monitor->speed_meas   = motor_monitor.speed_meas;
+  monitor->speed_target = speed_w_target;
+  monitor->speed_ref    = speed_w_ref;
+  monitor->speed_meas   = speed_w_meas;
 
   monitor->duty_u = motor_monitor.duty_u;
   monitor->duty_v = motor_monitor.duty_v;
   monitor->duty_w = motor_monitor.duty_w;
 
-  monitor->vbus = motor_monitor.vbus;
-  monitor->temp_raw = motor_monitor.temp_raw;
-  monitor->speed_cmd_raw = motor_monitor.speed_cmd_raw;
+  monitor->vbus = motor_vbus;
+  monitor->temp_raw = motor_temp_raw;
+  monitor->speed_cmd_raw = motor_speed_cmd_raw;
 
-  monitor->state = motor_monitor.state;
-  monitor->fault = motor_monitor.fault;
+  monitor->state = motor_state;
+  monitor->fault = motor_fault;
 
   if (primask == 0U)
   {
@@ -536,3 +518,12 @@ void motorSetCurrentReference(float id_ref, float iq_ref)
 #endif
 }
 
+motor_state_t motorGetState(void)
+{
+  return motor_state;
+}
+
+motor_fault_t motorGetFault(void)
+{
+  return motor_fault;
+}

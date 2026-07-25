@@ -14,6 +14,7 @@
 #include "adc.h"
 #include "foc.h"
 #include "hall.h"
+#include "motor_types.h"
 
 
 bool motorInit(void);
@@ -29,5 +30,8 @@ void motorClearFault(void);
 bool motorGetMonitor(motor_monitor_t *monitor);
 
 void motorSetCurrentReference(float id_ref, float iq_ref);
+
+motor_state_t motorGetState(void);
+motor_fault_t motorGetFault(void);
 
 #endif /* SRC_COMMON_HW_INCLUDE_MOTOR_H_ */

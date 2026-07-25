@@ -8,7 +8,7 @@
 #include "pid.h"
 #include "util.h"
 
-bool pidInit(pid_ctrl_t *pid, float kp, float ki, float kd, float min, float max)
+bool pidInit(pid_ctrl_t *pid, float kp, float ki, float kd, float out_min, float out_max, float int_min, float int_max)
 {
   bool ret = true;
 
@@ -22,11 +22,13 @@ bool pidInit(pid_ctrl_t *pid, float kp, float ki, float kd, float min, float max
   pid->kd = kd;
 
   pid->integral = 0.0f;
+  pid->integral_max = int_max;
+  pid->integral_min = int_min;
   pid->prev_error = 0.0f;
   pid->output = 0.0f;
 
-  pid->out_max = max;
-  pid->out_min = min;
+  pid->out_max = out_max;
+  pid->out_min = out_min;
 
   return ret;
 }
