@@ -169,6 +169,8 @@ void motorStart(void)
   motor_state = MOTOR_STATE_OPEN_LOOP;
 
 #endif
+
+  //pwmEnableOutput();
 }
 
 void motorStop(void)

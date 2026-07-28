@@ -136,12 +136,7 @@ void hallUpdate(void)
 
     if (hall_dir != 0 && dt_cycles > 0)
     {
-      float speed_e_raw =
-          (float)hall_dir *
-          HALL_SECTOR_ANGLE_E *
-          (float)cycleGetFreq() /
-          (float)dt_cycles;
-
+      float speed_e_raw = (float)hall_dir * HALL_SECTOR_ANGLE_E * (float)cycleGetFreq()/(float)dt_cycles;
       float speed_m_raw = speed_e_raw / MOTOR_POLE_PAIRS;
 
       hall_speed_e += HALL_SPEED_LPF_ALPHA * (speed_e_raw - hall_speed_e);

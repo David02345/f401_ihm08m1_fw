@@ -42,10 +42,10 @@ float piController(pid_ctrl_t *pi, float ref, float feedback, float dt)
 
   float error = ref - feedback;
 
-  pi->integral += error * dt;
-  pi->integral = clampFloat(pi->integral, -100.0f, 100.0f);
+  pi->integral += pi->ki * error * dt;
+  pi->integral = clampFloat(pi->integral, pi->integral_min, pi->integral_max);
 
-  pi->output = (pi->kp * error) + (pi->ki * pi->integral);
+  pi->output = pi->kp * error + pi->integral;
   pi->output = clampFloat(pi->output, pi->out_min, pi->out_max);
 
   return pi->output;

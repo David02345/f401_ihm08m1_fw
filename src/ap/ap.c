@@ -26,7 +26,6 @@ void apMain(void)
   delay(1000);
   motorStart();
 
-  delay(500);
 
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
 
