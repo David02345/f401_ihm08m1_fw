@@ -101,7 +101,7 @@ typedef struct
   float duty_w;
 
   float vbus;
-  float temp_raw;
+  uint16_t temp_raw;
   uint16_t speed_cmd_raw;
 
   motor_state_t state;

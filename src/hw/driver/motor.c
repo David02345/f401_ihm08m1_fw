@@ -18,9 +18,9 @@ static pid_ctrl_t pi_id;
 static pid_ctrl_t pi_iq;
 static pid_ctrl_t pi_spd;
 
-static volatile float motor_vbus    = 0.0f;
+static volatile float motor_vbus = 0.0f;
 static volatile uint16_t motor_speed_cmd_raw = 0;
-static uint16_t motor_temp_raw      = 0;
+static uint16_t motor_temp_raw = 0;
 
 static float speed_w_ref  = 0.0f;
 static float speed_w_meas = 0.0f;
@@ -217,7 +217,6 @@ void motorLowSpeedTask(void)
     return;
   }
   motor_vbus = adcGetVbusVoltage();
-  motor_monitor.vbus = motor_vbus;
 
   if(motor_vbus < MOTOR_VBUS_MIN)
   {
@@ -225,7 +224,7 @@ void motorLowSpeedTask(void)
     return;
   }
   motor_speed_cmd_raw = adcGetSpeedRaw();
-  motor_temp_raw = adcGetTempRaw();;
+  motor_temp_raw = adcGetTempRaw();
 }
 
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) || (MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED)
@@ -354,15 +353,26 @@ static void motorSpeedLoop(void)
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 static void motorOpenLoop(void)
 {
-  if(motor_state == MOTOR_STATE_OPEN_LOOP)
+  if(motor_state != MOTOR_STATE_OPEN_LOOP)
   {
-    open_loop_speed_e += OPEN_LOOP_ACCEL_E * OPEN_DT;
-    open_loop_speed_e = clampFloat(open_loop_speed_e, 0.5f, OPEN_LOOP_TARGET_SPEED);
-    open_loop_theta_e += (open_loop_speed_e * OPEN_DT);
-    open_loop_theta_e = wrapFloat(open_loop_theta_e, 0.0f, 2.0f * PI);
-    focRunOpenLoopVoltage(open_loop_vd, open_loop_vq, open_loop_theta_e, motor_vbus, &motor_duty);
-    pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
+    return;
   }
+
+  open_loop_speed_e += OPEN_LOOP_ACCEL_E * OPEN_DT;
+  open_loop_speed_e = clampFloat(open_loop_speed_e, 0.5f, OPEN_LOOP_TARGET_SPEED);
+  open_loop_theta_e += open_loop_speed_e * OPEN_DT;
+  open_loop_theta_e = wrapFloat(open_loop_theta_e, 0.0f, 2.0f * PI);
+  focRunOpenLoopVoltage(open_loop_vd, open_loop_vq, open_loop_theta_e, motor_vbus, &motor_duty);
+
+  motor_monitor.theta_e = open_loop_theta_e;
+  motor_monitor.vd_cmd  = open_loop_vd;
+  motor_monitor.vq_cmd  = open_loop_vq;
+
+  motor_monitor.duty_u = motor_duty.u;
+  motor_monitor.duty_v = motor_duty.v;
+  motor_monitor.duty_w = motor_duty.w;
+
+  pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
 }
 #endif
 
