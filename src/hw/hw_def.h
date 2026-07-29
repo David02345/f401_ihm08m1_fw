@@ -18,7 +18,7 @@
 #define MOTOR_CONTROL_SPEED               2
 #define MOTOR_CONTROL_POSITION            3
 
-#define MOTOR_CONTROL_MODE                MOTOR_CONTROL_SPEED
+#define MOTOR_CONTROL_MODE                MOTOR_CONTROL_CURRENT
 
 
 #define _USE_MOTOR_SIXSTEP                0
