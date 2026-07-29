@@ -225,3 +225,8 @@ static float hallSectorToElectricalAngle(int8_t sector)
 
     return wrapFloat(theta, 0.0f, 2.0f * PI);
 }
+
+int8_t hallGetDirection(void)
+{
+  return hall_dir;
+}

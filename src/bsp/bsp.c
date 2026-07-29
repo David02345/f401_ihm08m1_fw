@@ -27,7 +27,7 @@ void bspInit(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
-#if MOTOR_SENSOR_MODE == MOTOR_SENSOR_HALL
+#if _USE_HALL_SENSOR
 
   /*Configure GPIO pins : PB10 PB3 */
   GPIO_InitStruct.Pin  = GPIO_PIN_10|GPIO_PIN_3;
@@ -42,13 +42,13 @@ void bspInit(void)
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI3_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(EXTI3_IRQn, 2, 0);
   HAL_NVIC_EnableIRQ(EXTI3_IRQn);
 
-  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 2, 0);
   HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
-#elif MOTOR_SENSOR_MODE == MOTOR_SENSOR_ENCODER
+#elif _USE_ENCODER
 
 #endif
 }

@@ -131,9 +131,12 @@ void apMain(void)
 
 
       #if _USE_HALL_SENSOR
-      uartPrintf(_DEF_UART1, "Hall      : %u, Sector %d, Valid %d\r\n", (unsigned int)hallGetState(),
-                                                                        (int)hallGetSectorIndex(),
-                                                                        (int)hallIsValid());
+      int32_t hall_speed_mrad = (int32_t)(hallGetMechanicalSpeed() * 1000.0f);
+      uartPrintf(_DEF_UART1, "Hall      : %u, Sector %d, Dir %d, Valid %d\r\n", (unsigned int)hallGetState(),
+                                                                                (int)hallGetSectorIndex(),
+                                                                                (int)hallGetDirection(),
+                                                                                (int)hallIsValid());
+      uartPrintf(_DEF_UART1, "Hall Speed : %ld mrad/s\r\n", (long)hall_speed_mrad);
       #endif
     }
   }

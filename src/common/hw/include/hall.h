@@ -27,6 +27,8 @@ float hallGetMechanicalSpeed(void);
 
 float hallGetElectricalAngle(void);
 float hallGetMechanicalAngle(void);
+
+int8_t hallGetDirection(void);
 #endif
 
 #endif /* SRC_COMMON_HW_INCLUDE_HALL_H_ */
