@@ -23,7 +23,7 @@ void apMain(void)
 
   motor_monitor_t monitor = {0};
 
-  uint32_t  pretime_current = millis();
+  uint32_t pretime_current = 0;
   bool pretime_current_applied = false;
 
   delay(1000);
@@ -45,7 +45,8 @@ void apMain(void)
     motorSetCurrentReference(0.0f, 0.0f);
     pwmEnableOutput();
 
-    pretime_current_applied = true;
+    pretime_current = millis();
+
   }
 
 #elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
@@ -109,7 +110,7 @@ void apMain(void)
       int32_t speed_ref_mrad    = (int32_t)(monitor.speed_ref * 1000.0f);
       int32_t speed_meas_mrad   = (int32_t)(monitor.speed_meas * 1000.0f);
 
-      int32_t theta_mrad = (int32_t)(monitor.speed_meas * 1000.0f);
+      int32_t theta_mrad = (int32_t)(monitor.theta_e * 1000.0f);
 
 
       uartPrintf(_DEF_UART1, "ADC Count : %lu\r\n", (unsigned long)adc_count);
