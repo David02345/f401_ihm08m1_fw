@@ -23,8 +23,10 @@ void apMain(void)
 
   motor_monitor_t monitor = {0};
 
+#if !_USE_HALL_TEST_ONLY
   uint32_t pretime_current = 0;
   bool pretime_current_applied = false;
+#endif
 
   delay(1000);
 
@@ -43,10 +45,10 @@ void apMain(void)
   if (motorGetState() == MOTOR_STATE_CURRENT_LOOP)
   {
     motorSetCurrentReference(0.0f, 0.0f);
+#if !_USE_HALL_TEST_ONLY
     pwmEnableOutput();
-
     pretime_current = millis();
-
+#endif
   }
 
 #elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
@@ -70,7 +72,7 @@ void apMain(void)
       motorLowSpeedTask();
     }
 
-#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (!_USE_HALL_TEST_ONLY)
     if ((motorGetState() == MOTOR_STATE_CURRENT_LOOP) &&
         (pretime_current_applied == false) && ((now - pretime_current) >= 1000U))
     {
@@ -132,10 +134,14 @@ void apMain(void)
 
       #if _USE_HALL_SENSOR
       int32_t hall_speed_mrad = (int32_t)(hallGetMechanicalSpeed() * 1000.0f);
-      uartPrintf(_DEF_UART1, "Hall      : %u, Sector %d, Dir %d, Valid %d\r\n", (unsigned int)hallGetState(),
-                                                                                (int)hallGetSectorIndex(),
-                                                                                (int)hallGetDirection(),
-                                                                                (int)hallIsValid());
+      uint8_t hall_state = hallGetState();
+      uartPrintf(_DEF_UART1,"Hall      : %u%u%u, Sector %d, Dir %d, Valid %d\r\n",
+                 (unsigned int)((hall_state >> 2) & 1U),
+                 (unsigned int)((hall_state >> 1) & 1U),
+                 (unsigned int)(hall_state & 1U),
+                 (int)hallGetSectorIndex(),
+                 (int)hallGetDirection(),
+                 (int)hallIsValid());
       uartPrintf(_DEF_UART1, "Hall Speed : %ld mrad/s\r\n", (long)hall_speed_mrad);
       #endif
     }

@@ -89,11 +89,23 @@ static int8_t hallGetSector(uint8_t hall_state)
 
 void hallUpdate(void)
 {
-  uint8_t state = hallReadState();
-  int8_t sector = hallGetSector(state);
+  uint8_t state;
+  int8_t sector;
+  int8_t diff;
+  int8_t new_dir;
+  uint32_t now_cycle;
+  uint32_t dt_cycles;
+  float speed_e_raw;
+  float speed_m_raw;
+
+  state = hallReadState();
+  hall_state = state;
+
+  sector = hallGetSector(state);
 
   if (sector < 0)
   {
+    hall_sector = -1;
     hall_valid = false;
     hall_speed_e = 0.0f;
     hall_speed_m = 0.0f;
@@ -106,46 +118,73 @@ void hallUpdate(void)
     return;
   }
 
-  hall_valid = true;
-
-  uint32_t now_cycle = cycleGet();
-
-  hall_state = state;
-  hall_sector = sector;
-
-  hall_angle_e = hallSectorToElectricalAngle(sector);
-
-  if (hall_prev_sector >= 0 && hall_last_cycle != 0)
+  if (sector == hall_prev_sector)
   {
-    uint32_t dt_cycles = now_cycle - hall_last_cycle;
+    hall_sector = sector;
+    hall_angle_e = hallSectorToElectricalAngle(sector);
+    hall_valid = true;
+    return;
+  }
 
-    int8_t diff = sector - hall_prev_sector;
+  new_dir = 0;
 
-    if (diff == 1 || diff == -5)
+  if (hall_prev_sector >= 0)
+  {
+    diff = sector - hall_prev_sector;
+
+    if ((diff == 1) || (diff == -5))
     {
-      hall_dir = 1;
+      new_dir = 1;
     }
-    else if (diff == -1 || diff == 5)
+    else if ((diff == -1) || (diff == 5))
     {
-      hall_dir = -1;
+      new_dir = -1;
     }
     else
     {
+      /*
+       * 두 Sector 이상 건너뛴 비정상 전환
+       */
+      hall_sector = -1;
+      hall_valid = false;
       hall_dir = 0;
+      hall_speed_e = 0.0f;
+      hall_speed_m = 0.0f;
+      return;
     }
+  }
 
-    if (hall_dir != 0 && dt_cycles > 0)
-    {
-      float speed_e_raw = (float)hall_dir * HALL_SECTOR_ANGLE_E * (float)cycleGetFreq()/(float)dt_cycles;
-      float speed_m_raw = speed_e_raw / MOTOR_POLE_PAIRS;
+  now_cycle = cycleGet();
+  dt_cycles = now_cycle - hall_last_cycle;
 
-      hall_speed_e += HALL_SPEED_LPF_ALPHA * (speed_e_raw - hall_speed_e);
-      hall_speed_m += HALL_SPEED_LPF_ALPHA * (speed_m_raw - hall_speed_m);
-    }
+  hall_sector = sector;
+  hall_angle_e = hallSectorToElectricalAngle(sector);
+  hall_dir = new_dir;
+
+  if ((new_dir != 0) && (dt_cycles > 0U))
+  {
+    speed_e_raw =
+        (float)new_dir *
+        HALL_SECTOR_ANGLE_E *
+        (float)cycleGetFreq() /
+        (float)dt_cycles;
+
+    speed_m_raw =
+        speed_e_raw /
+        (float)MOTOR_POLE_PAIRS;
+
+    hall_speed_e +=
+        HALL_SPEED_LPF_ALPHA *
+        (speed_e_raw - hall_speed_e);
+
+    hall_speed_m +=
+        HALL_SPEED_LPF_ALPHA *
+        (speed_m_raw - hall_speed_m);
   }
 
   hall_prev_sector = sector;
   hall_last_cycle = now_cycle;
+  hall_valid = true;
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
@@ -161,8 +200,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 void hallUpdateTimeout(void)
 {
   uint32_t now_cycle = cycleGet();
-  uint32_t timeout_cycles =
-      (cycleGetFreq() / 1000000U) * HALL_STOP_TIMEOUT_US;
+  uint32_t timeout_cycles = (cycleGetFreq() / 1000000U) * HALL_STOP_TIMEOUT_US;
 
   if ((now_cycle - hall_last_cycle) > timeout_cycles)
   {
