@@ -18,8 +18,8 @@
 #define MOTOR_CONTROL_SPEED               2
 #define MOTOR_CONTROL_POSITION            3
 
-#define MOTOR_CONTROL_MODE                MOTOR_CONTROL_CURRENT
-
+//#define MOTOR_CONTROL_MODE                MOTOR_CONTROL_CURRENT
+#define MOTOR_CONTROL_MODE                MOTOR_CONTROL_OPEN_LOOP
 
 #define _USE_MOTOR_SIXSTEP                0
 #define _USE_MOTOR_FOC                    1

@@ -83,7 +83,6 @@ bool motorInit(void)
     motor_state = MOTOR_STATE_FAULT;
   }
 
-#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) || (MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED)
 #if _USE_HALL_SENSOR
   if(hallInit() != true)
   {
@@ -96,7 +95,6 @@ bool motorInit(void)
     ret = false;
     motor_state = MOTOR_STATE_FAULT;
   }
-#endif
 #endif
   if (ret != true)
   {
@@ -355,10 +353,18 @@ static void motorSpeedLoop(void)
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 static void motorOpenLoop(void)
 {
+  motor_abc_f_t i_abc;
+
   if(motor_state != MOTOR_STATE_OPEN_LOOP)
   {
     return;
   }
+
+  adcGetPhaseCurrent(&i_abc);
+
+  motor_monitor.ia = i_abc.a;
+  motor_monitor.ib = i_abc.b;
+  motor_monitor.ic = i_abc.c;
 
   open_loop_speed_e += OPEN_LOOP_ACCEL_E * OPEN_DT;
   open_loop_speed_e = clampFloat(open_loop_speed_e, 0.5f, OPEN_LOOP_TARGET_SPEED);
@@ -367,6 +373,12 @@ static void motorOpenLoop(void)
   focRunOpenLoopVoltage(open_loop_vd, open_loop_vq, open_loop_theta_e, motor_vbus, &motor_duty);
 
   motor_monitor.theta_e = open_loop_theta_e;
+
+  motor_monitor.id_ref  = 0.0f;
+  motor_monitor.id_meas = 0.0f;
+  motor_monitor.iq_ref  = 0.0f;
+  motor_monitor.iq_meas = 0.0f;
+
   motor_monitor.vd_cmd  = open_loop_vd;
   motor_monitor.vq_cmd  = open_loop_vq;
 

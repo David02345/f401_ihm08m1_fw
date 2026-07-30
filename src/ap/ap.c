@@ -28,6 +28,10 @@ void apMain(void)
   bool pretime_current_applied = false;
 #endif
 
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
+  uint32_t open_loop_start = 0U;
+  bool open_loop_stopped = false;
+#endif
   delay(1000);
 
   motorStart();
@@ -55,6 +59,7 @@ void apMain(void)
 
   if (motorGetState() == MOTOR_STATE_OPEN_LOOP)
   {
+    open_loop_start = millis();
     pwmEnableOutput();
   }
 
@@ -71,6 +76,17 @@ void apMain(void)
       pre_time_slow = now;
       motorLowSpeedTask();
     }
+
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
+
+    if ((open_loop_stopped == false) &&
+        ((now - open_loop_start) >= 5000U))
+    {
+      motorStop();
+      open_loop_stopped = true;
+    }
+
+#endif
 
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (!_USE_HALL_TEST_ONLY)
     if ((motorGetState() == MOTOR_STATE_CURRENT_LOOP) &&

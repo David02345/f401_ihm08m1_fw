@@ -144,9 +144,9 @@
   * @{
   */
 #define OPEN_DT                           0.00005f
-#define OPEN_LOOP_ACCEL_E                 20.0f
-#define OPEN_LOOP_TARGET_SPEED            (20.0f * PI)
-#define OPEN_LOOP_TARGET_VQ               1.5f
+#define OPEN_LOOP_ACCEL_E                 2.0f
+#define OPEN_LOOP_TARGET_SPEED            (2.0f * PI)
+#define OPEN_LOOP_TARGET_VQ               0.5f
 /**
   * @}
   */
