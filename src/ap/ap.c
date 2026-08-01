@@ -80,9 +80,14 @@ void apMain(void)
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 
     if ((open_loop_stopped == false) &&
+        (motorGetState() == MOTOR_STATE_OPEN_LOOP) &&
         ((now - open_loop_start) >= 5000U))
     {
       motorStop();
+      open_loop_stopped = true;
+    }
+    else if (motorGetState() == MOTOR_STATE_FAULT)
+    {
       open_loop_stopped = true;
     }
 

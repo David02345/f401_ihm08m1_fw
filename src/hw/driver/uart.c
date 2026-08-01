@@ -48,7 +48,7 @@ bool uartOpen(uint8_t ch, uint32_t baud)
       qbufferCreate(&qbuffer[ch], &rx_buf[0], 256);
 
       __HAL_RCC_DMA2_CLK_ENABLE();
-      HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 0, 0);
+      HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 5, 0);
       HAL_NVIC_EnableIRQ(DMA2_Stream2_IRQn);
 
       if (HAL_UART_Init(&huart1) != HAL_OK)
@@ -83,7 +83,7 @@ bool uartOpen(uint8_t ch, uint32_t baud)
       qbufferCreate(&qbuffer[ch], &rx_buf[0], 256);
 
       __HAL_RCC_DMA1_CLK_ENABLE();
-      HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 0, 0);
+      HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 5, 0);
       HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
 
 
@@ -228,7 +228,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 
 
-
 void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
 {
 
@@ -273,7 +272,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
     __HAL_LINKDMA(uartHandle,hdmarx,hdma_usart1_rx);
 
     /* USART1 interrupt Init */
-    HAL_NVIC_SetPriority(USART1_IRQn, 0, 0);
+    HAL_NVIC_SetPriority(USART1_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(USART1_IRQn);
   /* USER CODE BEGIN USART1_MspInit 1 */
 
@@ -319,7 +318,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
     __HAL_LINKDMA(uartHandle,hdmarx,hdma_usart2_rx);
 
     /* USART2 interrupt Init */
-    HAL_NVIC_SetPriority(USART2_IRQn, 0, 0);
+    HAL_NVIC_SetPriority(USART2_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(USART2_IRQn);
   /* USER CODE BEGIN USART2_MspInit 1 */
 
@@ -377,8 +376,3 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
   /* USER CODE END USART2_MspDeInit 1 */
   }
 }
-
-/* USER CODE BEGIN 1 */
-
-/* USER CODE END 1 */
-
