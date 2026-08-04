@@ -250,11 +250,27 @@ float hallGetElectricalAngle(void)
   uint32_t elapsed_cycle;
   float elapsed_sec;
   float theta_e;
+  float delta_theta;
 
   elapsed_cycle = cycleGet() - hall_last_cycle;
   elapsed_sec = (float)elapsed_cycle / (float)cycleGetFreq();
 
-  theta_e = hall_angle_e + hall_speed_e * elapsed_sec;
+  delta_theta = hall_speed_e * elapsed_sec;
+
+  if (hall_dir > 0)
+  {
+    delta_theta = clampFloat(delta_theta, 0.0f, HALL_SECTOR_ANGLE_E);
+  }
+  else if (hall_dir < 0)
+  {
+    delta_theta = clampFloat(delta_theta, -HALL_SECTOR_ANGLE_E, 0.0f);
+  }
+  else
+  {
+    delta_theta = 0.0f;
+  }
+
+  theta_e = hall_angle_e + delta_theta;
 
   return wrapFloat(theta_e, 0, 2 * PI);
 }

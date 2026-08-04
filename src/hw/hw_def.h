@@ -34,7 +34,7 @@
 #define _USE_ENCODER                      0
 #define _USE_HALL_SENSOR                  1
 #define _USE_HALL_TEST_ONLY               1
-#define _USE_HALL_OFFSET_CALIBRATION      1
+#define _USE_HALL_OFFSET_CALIBRATION      0
 
 
 #define _USE_HW_ADC
