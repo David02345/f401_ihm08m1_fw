@@ -32,6 +32,13 @@ void apMain(void)
   uint32_t open_loop_start = 0U;
   bool open_loop_stopped = false;
 #endif
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (_USE_HALL_OFFSET_CALIBRATION)
+  int8_t hall_cal_sector = -1;
+  int8_t hall_cal_direction = 0;
+  float hall_cal_theta_e = 0.0f;
+#endif
+
   delay(1000);
 
   motorStart();
@@ -81,7 +88,7 @@ void apMain(void)
 
     if ((open_loop_stopped == false) &&
         (motorGetState() == MOTOR_STATE_OPEN_LOOP) &&
-        ((now - open_loop_start) >= 8000U))
+        ((now - open_loop_start) >= HALL_CAL_TEST_TIME_MS))
     {
       motorStop();
       open_loop_stopped = true;
@@ -101,6 +108,20 @@ void apMain(void)
 
       pretime_current_applied = true;
     }
+#endif
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (_USE_HALL_OFFSET_CALIBRATION)
+
+    if (motorGetHallCalibrationEvent(&hall_cal_sector, &hall_cal_direction, &hall_cal_theta_e) == true)
+    {
+      int32_t hall_cal_theta_mrad = (int32_t)(hall_cal_theta_e * 1000.0f);
+
+      uartPrintf(_DEF_UART1, "HALL_CAL : Sector %d, Dir %d, Theta %ld mrad\r\n",
+                                                           (int)hall_cal_sector,
+                                                           (int)hall_cal_direction,
+                                                           (long)hall_cal_theta_mrad);
+    }
+
 #endif
 
     if (now - pre_time_debug >= 500)

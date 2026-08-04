@@ -34,4 +34,8 @@ void motorSetCurrentReference(float id_ref, float iq_ref);
 motor_state_t motorGetState(void);
 motor_fault_t motorGetFault(void);
 
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (_USE_HALL_OFFSET_CALIBRATION)
+bool motorGetHallCalibrationEvent(int8_t *sector, int8_t *direction, float *theta_e);
+#endif
+
 #endif /* SRC_COMMON_HW_INCLUDE_MOTOR_H_ */

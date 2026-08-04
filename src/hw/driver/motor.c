@@ -34,12 +34,25 @@ static float current_iq_ref = 0.0f;
 static volatile motor_monitor_t motor_monitor;
 
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
+
 static float open_loop_theta_e = 0.0f;
 static float open_loop_speed_e = 0.0f;
 static float open_loop_vd = 0.0f;
 static float open_loop_vq = 0.0f;
+
 static uint32_t open_loop_align_count = 0U;
 static bool open_loop_alignment_done = false;
+
+#if _USE_HALL_OFFSET_CALIBRATION
+
+static volatile bool hall_cal_event_pending = false;
+static volatile int8_t hall_cal_event_sector = -1;
+static volatile int8_t hall_cal_event_direction = 0;
+static volatile float hall_cal_event_theta_e = 0.0f;
+
+static int8_t hall_cal_prev_sector = -1;
+
+#endif
 #endif
 
 bool motorInit(void)
@@ -161,6 +174,32 @@ void motorStart(void)
 
 #elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 
+#if _USE_HALL_OFFSET_CALIBRATION
+
+  /*
+   * Hall offset calibration startup
+   *
+   * Positive d-axis voltage is used because the commanded
+   * theta should directly represent the stator alignment axis.
+   */
+  open_loop_theta_e = 0.0f;
+  open_loop_speed_e = 0.0f;
+
+  open_loop_vd = HALL_CAL_ALIGN_VD;
+  open_loop_vq = 0.0f;
+
+  open_loop_align_count = 0U;
+  open_loop_alignment_done = false;
+
+  hall_cal_event_pending = false;
+  hall_cal_event_sector = -1;
+  hall_cal_event_direction = 0;
+  hall_cal_event_theta_e = 0.0f;
+
+  hall_cal_prev_sector = hallGetSectorIndex();
+
+#else
+
   open_loop_theta_e = OPEN_LOOP_ALIGN_THETA_E;
   open_loop_speed_e = 0.0f;
 
@@ -169,6 +208,9 @@ void motorStart(void)
 
   open_loop_align_count = 0U;
   open_loop_alignment_done = false;
+
+#endif
+
 
   motor_state = MOTOR_STATE_OPEN_LOOP;
 
@@ -206,11 +248,65 @@ void motorStop(void)
   open_loop_align_count = 0U;
   open_loop_alignment_done = false;
 
+#if _USE_HALL_OFFSET_CALIBRATION
+
+  hall_cal_event_pending = false;
+  hall_cal_event_sector = -1;
+  hall_cal_event_direction = 0;
+  hall_cal_event_theta_e = 0.0f;
+  hall_cal_prev_sector = -1;
+
+#endif
+
 #endif
 
   motor_state = MOTOR_STATE_IDLE;
 }
+void motorLowSpeedTask(void)
+{
 
+  if (motor_state == MOTOR_STATE_FAULT)
+  {
+    return;
+  }
+
+#if _USE_HALL_SENSOR
+
+  hallUpdateTimeout();
+
+#endif
+
+  if (pwmIsBreakFault() == true)
+  {
+    motorSetFault(MOTOR_FAULT_BKIN);
+    return;
+  }
+
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
+
+  if (motor_state == MOTOR_STATE_OPEN_LOOP)
+  {
+    return;
+  }
+
+#endif
+
+  if (adcUpdateRegular() != true)
+  {
+    motorSetFault(MOTOR_FAULT_ADC_REGULAR_FAIL);
+    return;
+  }
+
+  motor_vbus = adcGetVbusVoltage();
+  motor_speed_cmd_raw = adcGetSpeedRaw();
+  motor_temp_raw = adcGetTempRaw();
+
+  if (motor_vbus < MOTOR_VBUS_MIN)
+  {
+    motorSetFault(MOTOR_FAULT_VBUS_LOW);
+    return;
+  }
+}
 /*
 void motorLowSpeedTask(void)
 {
@@ -244,7 +340,7 @@ void motorLowSpeedTask(void)
   motor_speed_cmd_raw = adcGetSpeedRaw();
   motor_temp_raw = adcGetTempRaw();
 }
-
+*/
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) || (MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED)
 static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 {
@@ -367,109 +463,93 @@ static void motorSpeedLoop(void)
   current_iq_ref = piController(&pi_spd, speed_w_ref, speed_w_meas, SPD_DT);
 }
 #endif
-*/
-void motorLowSpeedTask(void)
-{
-  /*
-   * Fault 상태에서는 추가 작업을 수행하지 않는다.
-   */
-  if (motor_state == MOTOR_STATE_FAULT)
-  {
-    return;
-  }
 
-#if _USE_HALL_SENSOR
-
-  /*
-   * Hall 입력이 일정 시간 동안 변하지 않으면
-   * Hall 속도와 방향을 0으로 갱신한다.
-   */
-  hallUpdateTimeout();
-
-#endif
-
-  /*
-   * 하드웨어 Break 입력은 Open-loop 시험 중에도
-   * 반드시 확인해야 한다.
-   */
-  if (pwmIsBreakFault() == true)
-  {
-    motorSetFault(MOTOR_FAULT_BKIN);
-    return;
-  }
-
-#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
-
-  /*
-   * 임시 Open-loop Hall 시험용 처리
-   *
-   * Injected ADC가 TIM1 Trigger로 20 kHz 동작하는 동안에는
-   * 같은 ADC1의 Regular 변환을 Polling 방식으로 실행하지 않는다.
-   *
-   * VBUS는 motorStart()에서 PWM 출력 전에 측정한 값을
-   * Open-loop 시험이 끝날 때까지 사용한다.
-   */
-  if (motor_state == MOTOR_STATE_OPEN_LOOP)
-  {
-    return;
-  }
-
-#endif
-
-  /*
-   * Open-loop 구동 중이 아니거나,
-   * Current/Speed mode인 경우 Regular ADC 값을 갱신한다.
-   */
-  if (adcUpdateRegular() != true)
-  {
-    motorSetFault(MOTOR_FAULT_ADC_REGULAR_FAIL);
-    return;
-  }
-
-  motor_vbus = adcGetVbusVoltage();
-  motor_speed_cmd_raw = adcGetSpeedRaw();
-  motor_temp_raw = adcGetTempRaw();
-
-  /*
-   * 저전압 보호
-   */
-  if (motor_vbus < MOTOR_VBUS_MIN)
-  {
-    motorSetFault(MOTOR_FAULT_VBUS_LOW);
-    return;
-  }
-}
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 
 static void motorOpenLoop(void)
 {
   motor_abc_f_t i_abc;
 
-  /*
-   * Open-loop 상태가 아니면 실행하지 않는다.
-   */
+#if _USE_HALL_OFFSET_CALIBRATION
+  int8_t current_sector;
+#endif
+
   if (motor_state != MOTOR_STATE_OPEN_LOOP)
   {
     return;
   }
 
-  /*
-   * 현재 3상 전류 측정
-   */
   adcGetPhaseCurrent(&i_abc);
 
   motor_monitor.ia = i_abc.a;
   motor_monitor.ib = i_abc.b;
   motor_monitor.ic = i_abc.c;
 
-  /*
-   * ---------------------------------------------------------
-   * Phase 1: Rotor alignment
-   * ---------------------------------------------------------
-   *
-   * 0.5초 동안 전기각을 고정한다.
-   * 고정된 stator voltage vector가 Rotor를 한 방향으로 정렬한다.
-   */
+#if _USE_HALL_OFFSET_CALIBRATION
+
+  if (open_loop_alignment_done == false)
+  {
+    open_loop_theta_e = 0.0f;
+    open_loop_speed_e = 0.0f;
+
+    open_loop_vd = HALL_CAL_ALIGN_VD;
+    open_loop_vq = 0.0f;
+
+    current_sector = hallGetSectorIndex();
+
+    if (current_sector >= 0)
+    {
+      hall_cal_prev_sector = current_sector;
+    }
+
+    open_loop_align_count++;
+
+    if (open_loop_align_count >= HALL_CAL_ALIGN_COUNT)
+    {
+      open_loop_alignment_done = true;
+
+      open_loop_speed_e = HALL_CAL_DIRECTION * HALL_CAL_SPEED_E;
+
+      open_loop_vd = HALL_CAL_ROTATE_VD;
+      open_loop_vq = 0.0f;
+
+      hall_cal_prev_sector = hallGetSectorIndex();
+    }
+  }
+  else
+  {
+    open_loop_speed_e =
+        HALL_CAL_DIRECTION * HALL_CAL_SPEED_E;
+
+    open_loop_theta_e += open_loop_speed_e * OPEN_DT;
+
+    open_loop_theta_e = wrapFloat(open_loop_theta_e, 0.0f, 2.0f * PI);
+
+    open_loop_vd = HALL_CAL_ROTATE_VD;
+    open_loop_vq = 0.0f;
+
+    current_sector = hallGetSectorIndex();
+
+    if (current_sector >= 0)
+    {
+      if (hall_cal_prev_sector < 0)
+      {
+        hall_cal_prev_sector = current_sector;
+      }
+      else if (current_sector != hall_cal_prev_sector)
+      {
+        hall_cal_event_sector = current_sector;
+        hall_cal_event_direction = hallGetDirection();
+        hall_cal_event_theta_e = open_loop_theta_e;
+        hall_cal_event_pending = true;
+
+        hall_cal_prev_sector = current_sector;
+      }
+    }
+  }
+
+#else
+
   if (open_loop_alignment_done == false)
   {
     open_loop_theta_e = OPEN_LOOP_ALIGN_THETA_E;
@@ -480,60 +560,31 @@ static void motorOpenLoop(void)
 
     open_loop_align_count++;
 
-    /*
-     * 20 kHz × 0.5초 = 10000회
-     */
     if (open_loop_align_count >= OPEN_LOOP_ALIGN_COUNT)
     {
       open_loop_alignment_done = true;
 
-      /*
-       * 정렬이 끝난 뒤 저속에서 회전을 시작한다.
-       */
       open_loop_speed_e = OPEN_LOOP_START_SPEED_E;
 
       open_loop_vd = 0.0f;
       open_loop_vq = OPEN_LOOP_TARGET_VQ;
     }
   }
-  /*
-   * ---------------------------------------------------------
-   * Phase 2: Open-loop rotation
-   * ---------------------------------------------------------
-   */
   else
   {
-    /*
-     * Electrical speed ramp
-     */
     open_loop_speed_e += OPEN_LOOP_ACCEL_E * OPEN_DT;
 
-    open_loop_speed_e = clampFloat(open_loop_speed_e,
-                                   OPEN_LOOP_START_SPEED_E,
-                                   OPEN_LOOP_TARGET_SPEED);
+    open_loop_speed_e = clampFloat(open_loop_speed_e, OPEN_LOOP_START_SPEED_E, OPEN_LOOP_TARGET_SPEED);
 
-    /*
-     * Electrical angle integration
-     */
     open_loop_theta_e += open_loop_speed_e * OPEN_DT;
 
-    open_loop_theta_e = wrapFloat(open_loop_theta_e,
-                                  0.0f,
-                                  2.0f * PI);
+    open_loop_theta_e = wrapFloat(open_loop_theta_e, 0.0f, 2.0f * PI);
   }
 
-  /*
-   * dq voltage -> inverse Park -> SPWM duty
-   */
-  focRunOpenLoopVoltage(open_loop_vd,
-                        open_loop_vq,
-                        open_loop_theta_e,
-                        motor_vbus,
-                        &motor_duty);
+#endif
 
-  /*
-   * Monitoring
-   */
+  focRunOpenLoopVoltage(open_loop_vd, open_loop_vq, open_loop_theta_e, motor_vbus, &motor_duty);
+
   motor_monitor.theta_e = open_loop_theta_e;
 
   motor_monitor.id_ref = 0.0f;
@@ -548,9 +599,6 @@ static void motorOpenLoop(void)
   motor_monitor.duty_v = motor_duty.v;
   motor_monitor.duty_w = motor_duty.w;
 
-  /*
-   * PWM compare update
-   */
   pwmSetDuty(motor_duty.u,
              motor_duty.v,
              motor_duty.w);
@@ -759,3 +807,38 @@ motor_fault_t motorGetFault(void)
 {
   return motor_fault;
 }
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (_USE_HALL_OFFSET_CALIBRATION)
+
+bool motorGetHallCalibrationEvent(int8_t *sector, int8_t *direction, float *theta_e)
+{
+  bool ret = false;
+  uint32_t primask;
+
+  if ((sector == NULL) || (direction == NULL) || (theta_e == NULL))
+  {
+    return false;
+  }
+
+  primask = __get_PRIMASK();
+  __disable_irq();
+
+  if (hall_cal_event_pending == true)
+  {
+    *sector = hall_cal_event_sector;
+    *direction = hall_cal_event_direction;
+    *theta_e = hall_cal_event_theta_e;
+
+    hall_cal_event_pending = false;
+    ret = true;
+  }
+
+  if (primask == 0U)
+  {
+    __enable_irq();
+  }
+
+  return ret;
+}
+
+#endif
