@@ -157,7 +157,6 @@ void hallUpdate(void)
 
   hall_sector = sector;
   hall_dir = new_dir;
-  hall_angle_e = hallSectorToElectricalAngle(sector);
   center_angle = hallSectorToElectricalAngle(sector);
 
   if (hall_dir > 0)

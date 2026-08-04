@@ -185,7 +185,7 @@ void apMain(void)
                                                                 (long)offset.b,
                                                                 (long)offset.c);
 
-      #if _USE_HALL_SENSOR
+#if _USE_HALL_SENSOR
       int32_t hall_speed_e_mrad = (int32_t)(hallGetElectricalSpeed() * 1000.0f);
       int32_t hall_speed_m_mrad = (int32_t)(hallGetMechanicalSpeed() * 1000.0f);
       uint8_t hall_state = hallGetState();
@@ -197,8 +197,35 @@ void apMain(void)
                  (int)hallGetDirection(),
                  (int)hallIsValid());
       uartPrintf(_DEF_UART1, "Hall Speed E : %ld mrad/s\r\n", (long)hall_speed_e_mrad);
-      uartPrintf(_DEF_UART1, "Hall Speed M : %ld mrad/s\r\n\n\n", (long)hall_speed_m_mrad);
-      #endif
+      uartPrintf(_DEF_UART1, "Hall Speed M : %ld mrad/s\r\n", (long)hall_speed_m_mrad);
+
+      float hall_theta_e;
+      float hall_error_e;
+      int32_t hall_theta_e_mrad;
+      int32_t hall_error_e_mrad;
+
+      hall_theta_e = hallGetElectricalAngle();
+
+      hall_error_e = hall_theta_e - monitor.theta_e;
+
+      while (hall_error_e > PI)
+      {
+        hall_error_e -= 2.0f * PI;
+      }
+
+      while (hall_error_e < -PI)
+      {
+        hall_error_e += 2.0f * PI;
+      }
+
+      hall_theta_e_mrad = (int32_t)(hall_theta_e * 1000.0f);
+
+      hall_error_e_mrad = (int32_t)(hall_error_e * 1000.0f);
+
+      uartPrintf(_DEF_UART1, "Hall Theta E : %ld mrad\r\n", (long)hall_theta_e_mrad);
+      uartPrintf(_DEF_UART1, "Hall Error E : %ld mrad\r\n", (long)hall_error_e_mrad);
+
+#endif
     }
   }
 }

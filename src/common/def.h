@@ -143,7 +143,7 @@
 #define HALL_CAL_SPEED_E                  0.40f
 #define HALL_CAL_DIRECTION                (-1.0f)
 
-#define HALL_CAL_TEST_TIME_MS             24000U
+#define HALL_CAL_TEST_TIME_MS             8000U
 /**
   * @}
   */
