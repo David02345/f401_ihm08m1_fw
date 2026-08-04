@@ -97,6 +97,7 @@ void hallUpdate(void)
   uint32_t dt_cycles;
   float speed_e_raw;
   float speed_m_raw;
+  float center_angle;
 
   state = hallReadState();
   hall_state = state;
@@ -142,9 +143,6 @@ void hallUpdate(void)
     }
     else
     {
-      /*
-       * 두 Sector 이상 건너뛴 비정상 전환
-       */
       hall_sector = -1;
       hall_valid = false;
       hall_dir = 0;
@@ -158,28 +156,36 @@ void hallUpdate(void)
   dt_cycles = now_cycle - hall_last_cycle;
 
   hall_sector = sector;
-  hall_angle_e = hallSectorToElectricalAngle(sector);
   hall_dir = new_dir;
+  hall_angle_e = hallSectorToElectricalAngle(sector);
+  center_angle = hallSectorToElectricalAngle(sector);
+
+  if (hall_dir > 0)
+  {
+    hall_angle_e = center_angle - 0.5f * HALL_SECTOR_ANGLE_E;
+  }
+  else if (hall_dir < 0)
+  {
+    hall_angle_e = center_angle + 0.5f * HALL_SECTOR_ANGLE_E;
+  }
+  else
+  {
+    hall_angle_e = center_angle;
+  }
+
+  hall_angle_e = wrapFloat(hall_angle_e,
+                           0.0f,
+                           2.0f * PI);
 
   if ((new_dir != 0) && (dt_cycles > 0U))
   {
-    speed_e_raw =
-        (float)new_dir *
-        HALL_SECTOR_ANGLE_E *
-        (float)cycleGetFreq() /
-        (float)dt_cycles;
+    speed_e_raw = (float)new_dir * HALL_SECTOR_ANGLE_E * (float)cycleGetFreq() / (float)dt_cycles;
 
-    speed_m_raw =
-        speed_e_raw /
-        (float)MOTOR_POLE_PAIRS;
+    speed_m_raw = speed_e_raw / (float)MOTOR_POLE_PAIRS;
 
-    hall_speed_e +=
-        HALL_SPEED_LPF_ALPHA *
-        (speed_e_raw - hall_speed_e);
+    hall_speed_e += HALL_SPEED_LPF_ALPHA * (speed_e_raw - hall_speed_e);
 
-    hall_speed_m +=
-        HALL_SPEED_LPF_ALPHA *
-        (speed_m_raw - hall_speed_m);
+    hall_speed_m += HALL_SPEED_LPF_ALPHA * (speed_m_raw - hall_speed_m);
   }
 
   hall_prev_sector = sector;
@@ -207,6 +213,11 @@ void hallUpdateTimeout(void)
     hall_speed_e = 0.0f;
     hall_speed_m = 0.0f;
     hall_dir = 0;
+
+    if (hall_sector >= 0)
+    {
+      hall_angle_e = hallSectorToElectricalAngle(hall_sector);
+    }
   }
 }
 uint8_t hallGetState(void)
@@ -257,11 +268,11 @@ float hallGetMechanicalAngle(void)
 
 static float hallSectorToElectricalAngle(int8_t sector)
 {
-    float theta;
+  float theta;
 
-    theta = -(float)sector * HALL_SECTOR_ANGLE_E + HALL_ELEC_OFFSET;
+  theta = -(float)sector * HALL_SECTOR_ANGLE_E + HALL_ELEC_OFFSET;
 
-    return wrapFloat(theta, 0.0f, 2.0f * PI);
+  return wrapFloat(theta, 0.0f, 2.0f * PI);
 }
 
 int8_t hallGetDirection(void)

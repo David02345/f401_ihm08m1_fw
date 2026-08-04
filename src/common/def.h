@@ -135,14 +135,15 @@
 #define HALL_SECTOR_ANGLE_E               (PI / 3.0f)
 #define HALL_SPEED_LPF_ALPHA              1.0f
 #define HALL_STOP_TIMEOUT_US              3000000U
-#define HALL_ELEC_OFFSET                  0.0f
+#define HALL_ELEC_OFFSET                  5.295f
 
-#define HALL_CAL_ALIGN_COUNT              10000U
-#define HALL_CAL_ALIGN_VD                 0.30f
-#define HALL_CAL_ROTATE_VD                0.40f
-#define HALL_CAL_SPEED_E                  0.50f
-#define HALL_CAL_DIRECTION                1.0f
-#define HALL_CAL_TEST_TIME_MS             15000U
+#define HALL_CAL_ALIGN_COUNT              20000U
+#define HALL_CAL_ALIGN_VD                 0.40f
+#define HALL_CAL_ROTATE_VD                0.45f
+#define HALL_CAL_SPEED_E                  0.40f
+#define HALL_CAL_DIRECTION                (-1.0f)
+
+#define HALL_CAL_TEST_TIME_MS             24000U
 /**
   * @}
   */

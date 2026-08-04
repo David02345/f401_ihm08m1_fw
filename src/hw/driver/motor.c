@@ -538,10 +538,35 @@ static void motorOpenLoop(void)
       }
       else if (current_sector != hall_cal_prev_sector)
       {
-        hall_cal_event_sector = current_sector;
-        hall_cal_event_direction = hallGetDirection();
-        hall_cal_event_theta_e = open_loop_theta_e;
-        hall_cal_event_pending = true;
+        int8_t sector_diff;
+        int8_t event_direction = 0;
+        int8_t expected_direction;
+
+        sector_diff = current_sector - hall_cal_prev_sector;
+
+        if ((sector_diff == -1) || (sector_diff == 5))
+        {
+          event_direction = 1;
+        }
+        else if ((sector_diff == 1) || (sector_diff == -5))
+        {
+          event_direction = -1;
+        }
+        else
+        {
+          event_direction = 0;
+        }
+
+        expected_direction =
+            (HALL_CAL_DIRECTION >= 0.0f) ? 1 : -1;
+
+        if (event_direction == expected_direction)
+        {
+          hall_cal_event_sector = current_sector;
+          hall_cal_event_direction = event_direction;
+          hall_cal_event_theta_e = open_loop_theta_e;
+          hall_cal_event_pending = true;
+        }
 
         hall_cal_prev_sector = current_sector;
       }
