@@ -81,7 +81,7 @@ void apMain(void)
 
     if ((open_loop_stopped == false) &&
         (motorGetState() == MOTOR_STATE_OPEN_LOOP) &&
-        ((now - open_loop_start) >= 5000U))
+        ((now - open_loop_start) >= 8000U))
     {
       motorStop();
       open_loop_stopped = true;
@@ -153,8 +153,20 @@ void apMain(void)
       uartPrintf(_DEF_UART1, "Theta_e   : %ld mrad\r\n\n", (long)theta_mrad);
 
 
+      motor_abc_u16_t raw;
+      motor_abc_f_t offset;
+
+      adcGetCurrentRaw(&raw);
+      adcGetCurrentOffset(&offset);
+
+      uartPrintf(_DEF_UART1, "Current Raw : %u, %u, %u\r\n", raw.a, raw.b, raw.c);
+      uartPrintf(_DEF_UART1, "Current Off : %ld, %ld, %ld\r\n", (long)offset.a,
+                                                                (long)offset.b,
+                                                                (long)offset.c);
+
       #if _USE_HALL_SENSOR
-      int32_t hall_speed_mrad = (int32_t)(hallGetMechanicalSpeed() * 1000.0f);
+      int32_t hall_speed_e_mrad = (int32_t)(hallGetElectricalSpeed() * 1000.0f);
+      int32_t hall_speed_m_mrad = (int32_t)(hallGetMechanicalSpeed() * 1000.0f);
       uint8_t hall_state = hallGetState();
       uartPrintf(_DEF_UART1,"Hall      : %u%u%u, Sector %d, Dir %d, Valid %d\r\n",
                  (unsigned int)((hall_state >> 2) & 1U),
@@ -163,7 +175,8 @@ void apMain(void)
                  (int)hallGetSectorIndex(),
                  (int)hallGetDirection(),
                  (int)hallIsValid());
-      uartPrintf(_DEF_UART1, "Hall Speed : %ld mrad/s\r\n", (long)hall_speed_mrad);
+      uartPrintf(_DEF_UART1, "Hall Speed E : %ld mrad/s\r\n", (long)hall_speed_e_mrad);
+      uartPrintf(_DEF_UART1, "Hall Speed M : %ld mrad/s\r\n\n\n", (long)hall_speed_m_mrad);
       #endif
     }
   }

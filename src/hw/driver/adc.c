@@ -272,6 +272,17 @@ uint32_t adcGetCurrentUpdateCount(void)
   return adc_curr_update_count;
 }
 
+void adcGetCurrentOffset(motor_abc_f_t *offset)
+{
+  if (offset == NULL)
+  {
+    return;
+  }
+
+  offset->a = adc_curr_offset.a;
+  offset->b = adc_curr_offset.b;
+  offset->c = adc_curr_offset.c;
+}
 
 
 

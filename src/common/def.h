@@ -133,8 +133,8 @@
   * @{
   */
 #define HALL_SECTOR_ANGLE_E               (PI / 3.0f)
-#define HALL_SPEED_LPF_ALPHA              0.2f
-#define HALL_STOP_TIMEOUT_US              200000U
+#define HALL_SPEED_LPF_ALPHA              1.0f
+#define HALL_STOP_TIMEOUT_US              3000000U
 #define HALL_ELEC_OFFSET                  0.0f
 /**
   * @}
@@ -144,9 +144,15 @@
   * @{
   */
 #define OPEN_DT                           0.00005f
-#define OPEN_LOOP_ACCEL_E                 2.0f
-#define OPEN_LOOP_TARGET_SPEED            (2.0f * PI)
-#define OPEN_LOOP_TARGET_VQ               0.5f
+
+#define OPEN_LOOP_ALIGN_COUNT             10000U
+#define OPEN_LOOP_ALIGN_THETA_E           0.0f
+#define OPEN_LOOP_ALIGN_VQ                0.3f
+
+#define OPEN_LOOP_START_SPEED_E           0.0f
+#define OPEN_LOOP_ACCEL_E                 0.2f
+#define OPEN_LOOP_TARGET_SPEED            0.7f
+#define OPEN_LOOP_TARGET_VQ               0.4f
 /**
   * @}
   */

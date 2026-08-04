@@ -132,11 +132,11 @@ void hallUpdate(void)
   {
     diff = sector - hall_prev_sector;
 
-    if ((diff == 1) || (diff == -5))
+    if ((diff == -1) || (diff == 5))
     {
       new_dir = 1;
     }
-    else if ((diff == -1) || (diff == 5))
+    else if ((diff == 1) || (diff == -5))
     {
       new_dir = -1;
     }
@@ -259,7 +259,7 @@ static float hallSectorToElectricalAngle(int8_t sector)
 {
     float theta;
 
-    theta = (float)sector * HALL_SECTOR_ANGLE_E + HALL_ELEC_OFFSET;
+    theta = -(float)sector * HALL_SECTOR_ANGLE_E + HALL_ELEC_OFFSET;
 
     return wrapFloat(theta, 0.0f, 2.0f * PI);
 }

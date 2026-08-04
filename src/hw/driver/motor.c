@@ -38,6 +38,8 @@ static float open_loop_theta_e = 0.0f;
 static float open_loop_speed_e = 0.0f;
 static float open_loop_vd = 0.0f;
 static float open_loop_vq = 0.0f;
+static uint32_t open_loop_align_count = 0U;
+static bool open_loop_alignment_done = false;
 #endif
 
 bool motorInit(void)
@@ -159,10 +161,14 @@ void motorStart(void)
 
 #elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 
-  open_loop_theta_e = 0.0f;
-  open_loop_speed_e = 0.5f;
+  open_loop_theta_e = OPEN_LOOP_ALIGN_THETA_E;
+  open_loop_speed_e = 0.0f;
+
   open_loop_vd = 0.0f;
-  open_loop_vq = OPEN_LOOP_TARGET_VQ;
+  open_loop_vq = OPEN_LOOP_ALIGN_VQ;
+
+  open_loop_align_count = 0U;
+  open_loop_alignment_done = false;
 
   motor_state = MOTOR_STATE_OPEN_LOOP;
 
@@ -190,10 +196,22 @@ void motorStop(void)
   current_id_ref = 0.0f;
   current_iq_ref = 0.0f;
 
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
+
+  open_loop_theta_e = 0.0f;
+  open_loop_speed_e = 0.0f;
+  open_loop_vd = 0.0f;
+  open_loop_vq = 0.0f;
+
+  open_loop_align_count = 0U;
+  open_loop_alignment_done = false;
+
+#endif
+
   motor_state = MOTOR_STATE_IDLE;
 }
 
-
+/*
 void motorLowSpeedTask(void)
 {
   if(motor_state == MOTOR_STATE_FAULT)
@@ -349,7 +367,197 @@ static void motorSpeedLoop(void)
   current_iq_ref = piController(&pi_spd, speed_w_ref, speed_w_meas, SPD_DT);
 }
 #endif
+*/
+void motorLowSpeedTask(void)
+{
+  /*
+   * Fault 상태에서는 추가 작업을 수행하지 않는다.
+   */
+  if (motor_state == MOTOR_STATE_FAULT)
+  {
+    return;
+  }
 
+#if _USE_HALL_SENSOR
+
+  /*
+   * Hall 입력이 일정 시간 동안 변하지 않으면
+   * Hall 속도와 방향을 0으로 갱신한다.
+   */
+  hallUpdateTimeout();
+
+#endif
+
+  /*
+   * 하드웨어 Break 입력은 Open-loop 시험 중에도
+   * 반드시 확인해야 한다.
+   */
+  if (pwmIsBreakFault() == true)
+  {
+    motorSetFault(MOTOR_FAULT_BKIN);
+    return;
+  }
+
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
+
+  /*
+   * 임시 Open-loop Hall 시험용 처리
+   *
+   * Injected ADC가 TIM1 Trigger로 20 kHz 동작하는 동안에는
+   * 같은 ADC1의 Regular 변환을 Polling 방식으로 실행하지 않는다.
+   *
+   * VBUS는 motorStart()에서 PWM 출력 전에 측정한 값을
+   * Open-loop 시험이 끝날 때까지 사용한다.
+   */
+  if (motor_state == MOTOR_STATE_OPEN_LOOP)
+  {
+    return;
+  }
+
+#endif
+
+  /*
+   * Open-loop 구동 중이 아니거나,
+   * Current/Speed mode인 경우 Regular ADC 값을 갱신한다.
+   */
+  if (adcUpdateRegular() != true)
+  {
+    motorSetFault(MOTOR_FAULT_ADC_REGULAR_FAIL);
+    return;
+  }
+
+  motor_vbus = adcGetVbusVoltage();
+  motor_speed_cmd_raw = adcGetSpeedRaw();
+  motor_temp_raw = adcGetTempRaw();
+
+  /*
+   * 저전압 보호
+   */
+  if (motor_vbus < MOTOR_VBUS_MIN)
+  {
+    motorSetFault(MOTOR_FAULT_VBUS_LOW);
+    return;
+  }
+}
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
+
+static void motorOpenLoop(void)
+{
+  motor_abc_f_t i_abc;
+
+  /*
+   * Open-loop 상태가 아니면 실행하지 않는다.
+   */
+  if (motor_state != MOTOR_STATE_OPEN_LOOP)
+  {
+    return;
+  }
+
+  /*
+   * 현재 3상 전류 측정
+   */
+  adcGetPhaseCurrent(&i_abc);
+
+  motor_monitor.ia = i_abc.a;
+  motor_monitor.ib = i_abc.b;
+  motor_monitor.ic = i_abc.c;
+
+  /*
+   * ---------------------------------------------------------
+   * Phase 1: Rotor alignment
+   * ---------------------------------------------------------
+   *
+   * 0.5초 동안 전기각을 고정한다.
+   * 고정된 stator voltage vector가 Rotor를 한 방향으로 정렬한다.
+   */
+  if (open_loop_alignment_done == false)
+  {
+    open_loop_theta_e = OPEN_LOOP_ALIGN_THETA_E;
+    open_loop_speed_e = 0.0f;
+
+    open_loop_vd = 0.0f;
+    open_loop_vq = OPEN_LOOP_ALIGN_VQ;
+
+    open_loop_align_count++;
+
+    /*
+     * 20 kHz × 0.5초 = 10000회
+     */
+    if (open_loop_align_count >= OPEN_LOOP_ALIGN_COUNT)
+    {
+      open_loop_alignment_done = true;
+
+      /*
+       * 정렬이 끝난 뒤 저속에서 회전을 시작한다.
+       */
+      open_loop_speed_e = OPEN_LOOP_START_SPEED_E;
+
+      open_loop_vd = 0.0f;
+      open_loop_vq = OPEN_LOOP_TARGET_VQ;
+    }
+  }
+  /*
+   * ---------------------------------------------------------
+   * Phase 2: Open-loop rotation
+   * ---------------------------------------------------------
+   */
+  else
+  {
+    /*
+     * Electrical speed ramp
+     */
+    open_loop_speed_e += OPEN_LOOP_ACCEL_E * OPEN_DT;
+
+    open_loop_speed_e = clampFloat(open_loop_speed_e,
+                                   OPEN_LOOP_START_SPEED_E,
+                                   OPEN_LOOP_TARGET_SPEED);
+
+    /*
+     * Electrical angle integration
+     */
+    open_loop_theta_e += open_loop_speed_e * OPEN_DT;
+
+    open_loop_theta_e = wrapFloat(open_loop_theta_e,
+                                  0.0f,
+                                  2.0f * PI);
+  }
+
+  /*
+   * dq voltage -> inverse Park -> SPWM duty
+   */
+  focRunOpenLoopVoltage(open_loop_vd,
+                        open_loop_vq,
+                        open_loop_theta_e,
+                        motor_vbus,
+                        &motor_duty);
+
+  /*
+   * Monitoring
+   */
+  motor_monitor.theta_e = open_loop_theta_e;
+
+  motor_monitor.id_ref = 0.0f;
+  motor_monitor.id_meas = 0.0f;
+  motor_monitor.iq_ref = 0.0f;
+  motor_monitor.iq_meas = 0.0f;
+
+  motor_monitor.vd_cmd = open_loop_vd;
+  motor_monitor.vq_cmd = open_loop_vq;
+
+  motor_monitor.duty_u = motor_duty.u;
+  motor_monitor.duty_v = motor_duty.v;
+  motor_monitor.duty_w = motor_duty.w;
+
+  /*
+   * PWM compare update
+   */
+  pwmSetDuty(motor_duty.u,
+             motor_duty.v,
+             motor_duty.w);
+}
+
+#endif
+/*
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 static void motorOpenLoop(void)
 {
@@ -389,7 +597,7 @@ static void motorOpenLoop(void)
   pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
 }
 #endif
-
+*/
 void motorControlUpdate(void)
 {
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
