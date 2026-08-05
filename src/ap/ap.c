@@ -6,7 +6,7 @@
  */
 #include "ap.h"
 
-extern TIM_HandleTypeDef htim1;
+//extern TIM_HandleTypeDef htim1;
 
 void apInit(void)
 {
@@ -193,9 +193,6 @@ void apMain(void)
                  (long)duty_w_permille);
 
       uartPrintf(_DEF_UART1,
-                 "RESULT      : PASS - NO SW OVERCURRENT\r\n");
-
-      uartPrintf(_DEF_UART1,
                  "RESULT      : COMPLETE - NO 0.8 A TRIP\r\n");
     }
 
@@ -216,6 +213,7 @@ void apMain(void)
     {
       // [수정] ADC/PWM을 정지하기 전에 trip 순간의 monitor 값을 저장
       motorGetMonitor(&monitor);
+      motor_fault_t test_fault = monitor.fault;
 
       uint32_t current_test_elapsed_ms = now - current_test_start;
       uint32_t current_test_adc_end_count = adcGetCurrentUpdateCount();
@@ -246,26 +244,28 @@ void apMain(void)
       int32_t duty_v_permille = (int32_t)(monitor.duty_v * 1000.0f);
       int32_t duty_w_permille = (int32_t)(monitor.duty_w * 1000.0f);
 
-      motorSetFault(monitor.fault);
+      motorSetFault(test_fault);
 
       current_test_stopped = true;
 
       prev_adc_count = current_test_adc_end_count;
 
       uartPrintf(_DEF_UART1, "\r\n" "===== CURRENT NEUTRAL TEST =====\r\n");
-      motor_fault_t test_fault = motorGetFault();
 
       if (test_fault == MOTOR_FAULT_SW_OVERCURRENT)
       {
         uartPrintf(_DEF_UART1,
-                   "Stop Reason : SW OVERCURRENT\r\n");
+                   "RESULT      : FAIL - SW OVERCURRENT\r\n");
       }
       else
       {
         uartPrintf(_DEF_UART1,
-                   "Stop Reason : OTHER FAULT (%d)\r\n",
+                   "RESULT      : FAIL - OTHER FAULT (%d)\r\n",
                    (int)test_fault);
       }
+
+      uartPrintf(_DEF_UART1,
+                 "================================\r\n\r\n");
       uartPrintf(_DEF_UART1, "Elapsed     : %lu ms\r\n", (unsigned long)current_test_elapsed_ms);
       uartPrintf(_DEF_UART1, "ADC Samples : %lu\r\n", (unsigned long)current_test_adc_samples);
       uartPrintf(_DEF_UART1, "ADC Hz      : %lu\r\n", (unsigned long)current_test_adc_hz);
