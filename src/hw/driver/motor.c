@@ -164,24 +164,19 @@ void motorStart(void)
     return;
   }
 
-#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
 
-  motor_state = MOTOR_STATE_SPEED_LOOP;
-
-#elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
 
   motor_state = MOTOR_STATE_CURRENT_LOOP;
+
+#elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
+
+  motor_state = MOTOR_STATE_SPEED_LOOP;
 
 #elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 
 #if _USE_HALL_OFFSET_CALIBRATION
 
-  /*
-   * Hall offset calibration startup
-   *
-   * Positive d-axis voltage is used because the commanded
-   * theta should directly represent the stator alignment axis.
-   */
   open_loop_theta_e = 0.0f;
   open_loop_speed_e = 0.0f;
 
@@ -210,7 +205,6 @@ void motorStart(void)
   open_loop_alignment_done = false;
 
 #endif
-
 
   motor_state = MOTOR_STATE_OPEN_LOOP;
 

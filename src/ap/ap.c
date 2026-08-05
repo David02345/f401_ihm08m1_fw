@@ -23,9 +23,9 @@ void apMain(void)
 
   motor_monitor_t monitor = {0};
 
-#if !_USE_HALL_TEST_ONLY
-  uint32_t pretime_current = 0;
-  bool pretime_current_applied = false;
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
+  uint32_t current_test_start = 0U;
+  bool current_test_stopped = false;
 #endif
 
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
@@ -37,7 +37,11 @@ void apMain(void)
 #else
   const uint32_t open_loop_test_time_ms = OPEN_LOOP_TEST_TIME_MS;
 #endif
+#endif
 
+#if !_USE_HALL_TEST_ONLY
+  uint32_t pretime_current = 0;
+  bool pretime_current_applied = false;
 #endif
 
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (_USE_HALL_OFFSET_CALIBRATION)
@@ -49,16 +53,9 @@ void apMain(void)
   delay(1000);
 
   motorStart();
+  motorSetCurrentReference(0.0f, 0.0f);
 
-
-#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
-
-  if (motorGetState() == MOTOR_STATE_SPEED_LOOP)
-  {
-    pwmEnableOutput();
-  }
-
-#elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
 
   if (motorGetState() == MOTOR_STATE_CURRENT_LOOP)
   {
@@ -66,7 +63,15 @@ void apMain(void)
 #if !_USE_HALL_TEST_ONLY
     pwmEnableOutput();
     pretime_current = millis();
+    current_test_start = millis();
 #endif
+  }
+
+#elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
+
+  if (motorGetState() == MOTOR_STATE_SPEED_LOOP)
+  {
+    pwmEnableOutput();
   }
 
 #elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
@@ -91,6 +96,34 @@ void apMain(void)
       motorLowSpeedTask();
     }
 
+
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT)
+
+    if ((current_test_stopped == false) && (motorGetState() == MOTOR_STATE_CURRENT_LOOP) &&
+        ((now - current_test_start) >= CURRENT_LOOP_TEST_TIME_MS))
+    {
+      motorSetCurrentReference(0.0f, 0.0f);
+      motorStop();
+      current_test_stopped = true;
+    }
+    else if (motorGetState() == MOTOR_STATE_FAULT)
+    {
+      current_test_stopped = true;
+    }
+
+#if (!_USE_HALL_TEST_ONLY)
+    if ((motorGetState() == MOTOR_STATE_CURRENT_LOOP) &&
+        (pretime_current_applied == false) && ((now - pretime_current) >= 1000U))
+    {
+      motorSetCurrentReference(0.0f, 0.0f);
+
+      pretime_current_applied = true;
+    }
+#endif
+
+#endif
+
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 
     if ((open_loop_stopped == false) && (motorGetState() == MOTOR_STATE_OPEN_LOOP) &&
@@ -104,16 +137,6 @@ void apMain(void)
       open_loop_stopped = true;
     }
 
-#endif
-
-#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (!_USE_HALL_TEST_ONLY)
-    if ((motorGetState() == MOTOR_STATE_CURRENT_LOOP) &&
-        (pretime_current_applied == false) && ((now - pretime_current) >= 1000U))
-    {
-      motorSetCurrentReference(0.0f, 0.05f);
-
-      pretime_current_applied = true;
-    }
 #endif
 
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (_USE_HALL_OFFSET_CALIBRATION)

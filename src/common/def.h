@@ -77,27 +77,17 @@
 /** @defgroup Integral & Output Minimum, Maximum Values
   * @{
   */
-#define INTEGRAL_ID_MAX    0.5f
-#define INTEGRAL_ID_MIN   -0.5f
-#define INTEGRAL_IQ_MAX    0.5f
-#define INTEGRAL_IQ_MIN   -0.5f
-//#define INTEGRAL_ID_MAX                   12.0f
-//#define INTEGRAL_ID_MIN                   -12.0f
-//#define INTEGRAL_IQ_MAX                   12.0f
-//#define INTEGRAL_IQ_MIN                   -12.0f
+#define INTEGRAL_ID_MAX                   0.5f
+#define INTEGRAL_ID_MIN                   -0.5f
+#define INTEGRAL_IQ_MAX                   0.5f
+#define INTEGRAL_IQ_MIN                   -0.5f
 #define INTEGRAL_SPD_MAX                  1.0f
 #define INTEGRAL_SPD_MIN                  -1.0f
 
-
-#define OUTPUT_VD_REF_MAX  0.5f
-#define OUTPUT_VD_REF_MIN -0.5f
-#define OUTPUT_VQ_REF_MAX  0.5f
-#define OUTPUT_VQ_REF_MIN -0.5f
-//#define OUTPUT_VD_REF_MAX                 12.0f
-//#define OUTPUT_VD_REF_MIN                 -12.0f
-//#define OUTPUT_VQ_REF_MAX                 12.0f
-//#define OUTPUT_VQ_REF_MIN                 -12.0f
-
+#define OUTPUT_VD_REF_MAX                 0.5f
+#define OUTPUT_VD_REF_MIN                 -0.5f
+#define OUTPUT_VQ_REF_MAX                 0.5f
+#define OUTPUT_VQ_REF_MIN                 -0.5f
 #define OUTPUT_ID_REF_MAX                 0.5f
 #define OUTPUT_ID_REF_MIN                 -0.5f
 #define OUTPUT_IQ_REF_MAX                 1.0f
@@ -163,6 +153,14 @@
 #define OPEN_LOOP_TARGET_VQ               0.4f
 
 #define OPEN_LOOP_TEST_TIME_MS            8000U
+/**
+  * @}
+  */
+
+/** @defgroup Current Loop Define
+  * @{
+  */
+#define CURRENT_LOOP_TEST_TIME_MS         2000U
 /**
   * @}
   */
