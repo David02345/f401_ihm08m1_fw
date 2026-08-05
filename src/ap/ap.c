@@ -255,6 +255,18 @@ void apMain(void)
       uartPrintf(_DEF_UART1, "Hall Error E : %ld mrad\r\n", (long)hall_error_e_mrad);
 
 #endif
+      int32_t vd_mv = (int32_t)(monitor.vd_cmd * 1000.0f);
+      int32_t vq_mv = (int32_t)(monitor.vq_cmd * 1000.0f);
+
+      int32_t duty_u_permille = (int32_t)(monitor.duty_u * 1000.0f);
+      int32_t duty_v_permille = (int32_t)(monitor.duty_v * 1000.0f);
+      int32_t duty_w_permille = (int32_t)(monitor.duty_w * 1000.0f);
+
+      uartPrintf(_DEF_UART1, "Vdq       : %ld / %ld mV\r\n", (long)vd_mv, (long)vq_mv);
+
+      uartPrintf(_DEF_UART1, "Duty UVW  : %ld / %ld / %ld permille\r\n\n", (long)duty_u_permille,
+                                                                           (long)duty_v_permille,
+                                                                           (long)duty_w_permille);
     }
   }
 }

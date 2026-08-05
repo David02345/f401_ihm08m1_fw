@@ -265,9 +265,7 @@ void motorLowSpeedTask(void)
   }
 
 #if _USE_HALL_SENSOR
-
   hallUpdateTimeout();
-
 #endif
 
   if (pwmIsBreakFault() == true)
@@ -276,6 +274,12 @@ void motorLowSpeedTask(void)
     return;
   }
 
+  if ((motor_state == MOTOR_STATE_CURRENT_LOOP) ||
+      (motor_state == MOTOR_STATE_SPEED_LOOP)   ||
+      (motor_state == MOTOR_STATE_OPEN_LOOP))
+  {
+    return;
+  }
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 
   if (motor_state == MOTOR_STATE_OPEN_LOOP)
