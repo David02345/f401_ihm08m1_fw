@@ -196,7 +196,7 @@ void apMain(void)
                  "RESULT      : PASS - NO SW OVERCURRENT\r\n");
 
       uartPrintf(_DEF_UART1,
-                 "================================\r\n\r\n");
+                 "RESULT      : COMPLETE - NO 0.8 A TRIP\r\n");
     }
 
     /*
@@ -217,53 +217,34 @@ void apMain(void)
       // [수정] ADC/PWM을 정지하기 전에 trip 순간의 monitor 값을 저장
       motorGetMonitor(&monitor);
 
-      uint32_t current_test_elapsed_ms =
-          now - current_test_start;
-
-      uint32_t current_test_adc_end_count =
-          adcGetCurrentUpdateCount();
-
-      uint32_t current_test_adc_samples =
-          current_test_adc_end_count -
-          current_test_adc_start_count;
+      uint32_t current_test_elapsed_ms = now - current_test_start;
+      uint32_t current_test_adc_end_count = adcGetCurrentUpdateCount();
+      uint32_t current_test_adc_samples = current_test_adc_end_count -
+                                          current_test_adc_start_count;
 
       uint32_t current_test_adc_hz = 0U;
 
       if (current_test_elapsed_ms > 0U)
       {
-        current_test_adc_hz =
-            (current_test_adc_samples * 1000U) /
-            current_test_elapsed_ms;
+        current_test_adc_hz = (current_test_adc_samples * 1000U) /
+                               current_test_elapsed_ms;
       }
 
-      int32_t ia_ma =
-          (int32_t)(monitor.ia * 1000.0f);
+      int32_t ia_ma = (int32_t)(monitor.ia * 1000.0f);
+      int32_t ib_ma = (int32_t)(monitor.ib * 1000.0f);
+      int32_t ic_ma = (int32_t)(monitor.ic * 1000.0f);
 
-      int32_t ib_ma =
-          (int32_t)(monitor.ib * 1000.0f);
+      int32_t current_sum_ma = (int32_t)((monitor.ia +
+                                          monitor.ib +
+                                          monitor.ic) * 1000.0f);
 
-      int32_t ic_ma =
-          (int32_t)(monitor.ic * 1000.0f);
+      int32_t vd_mv = (int32_t)(monitor.vd_cmd * 1000.0f);
 
-      int32_t current_sum_ma =
-          (int32_t)((monitor.ia +
-                     monitor.ib +
-                     monitor.ic) * 1000.0f);
+      int32_t vq_mv = (int32_t)(monitor.vq_cmd * 1000.0f);
 
-      int32_t vd_mv =
-          (int32_t)(monitor.vd_cmd * 1000.0f);
-
-      int32_t vq_mv =
-          (int32_t)(monitor.vq_cmd * 1000.0f);
-
-      int32_t duty_u_permille =
-          (int32_t)(monitor.duty_u * 1000.0f);
-
-      int32_t duty_v_permille =
-          (int32_t)(monitor.duty_v * 1000.0f);
-
-      int32_t duty_w_permille =
-          (int32_t)(monitor.duty_w * 1000.0f);
+      int32_t duty_u_permille = (int32_t)(monitor.duty_u * 1000.0f);
+      int32_t duty_v_permille = (int32_t)(monitor.duty_v * 1000.0f);
+      int32_t duty_w_permille = (int32_t)(monitor.duty_w * 1000.0f);
 
       motorSetFault(monitor.fault);
 
@@ -272,7 +253,19 @@ void apMain(void)
       prev_adc_count = current_test_adc_end_count;
 
       uartPrintf(_DEF_UART1, "\r\n" "===== CURRENT NEUTRAL TEST =====\r\n");
-      uartPrintf(_DEF_UART1, "Stop Reason : SW OVERCURRENT\r\n");
+      motor_fault_t test_fault = motorGetFault();
+
+      if (test_fault == MOTOR_FAULT_SW_OVERCURRENT)
+      {
+        uartPrintf(_DEF_UART1,
+                   "Stop Reason : SW OVERCURRENT\r\n");
+      }
+      else
+      {
+        uartPrintf(_DEF_UART1,
+                   "Stop Reason : OTHER FAULT (%d)\r\n",
+                   (int)test_fault);
+      }
       uartPrintf(_DEF_UART1, "Elapsed     : %lu ms\r\n", (unsigned long)current_test_elapsed_ms);
       uartPrintf(_DEF_UART1, "ADC Samples : %lu\r\n", (unsigned long)current_test_adc_samples);
       uartPrintf(_DEF_UART1, "ADC Hz      : %lu\r\n", (unsigned long)current_test_adc_hz);
