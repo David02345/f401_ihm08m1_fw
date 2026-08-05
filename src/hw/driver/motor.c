@@ -12,7 +12,7 @@
 
 static volatile motor_state_t motor_state;
 static volatile motor_fault_t motor_fault = MOTOR_FAULT_NONE;
-static motor_duty_t motor_duty;
+//static motor_duty_t motor_duty;
 
 static pid_ctrl_t pi_id;
 static pid_ctrl_t pi_iq;
@@ -280,14 +280,6 @@ void motorLowSpeedTask(void)
   {
     return;
   }
-#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
-
-  if (motor_state == MOTOR_STATE_OPEN_LOOP)
-  {
-    return;
-  }
-
-#endif
 
   if (adcUpdateRegular() != true)
   {
@@ -339,7 +331,46 @@ void motorLowSpeedTask(void)
   motor_temp_raw = adcGetTempRaw();
 }
 */
+
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) || (MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED)
+
+static void motorCurrentLoop(float id_ref,
+                             float iq_ref,
+                             float theta_e)
+{
+  motor_abc_f_t i_abc;
+
+  (void)id_ref;
+  (void)iq_ref;
+  (void)theta_e;
+
+  adcGetPhaseCurrent(&i_abc);
+
+  /*
+   * 소프트웨어 과전류 검사
+   */
+  if ((fabsf(i_abc.a) > CURRENT_TEST_OC_LIMIT_A) ||
+      (fabsf(i_abc.b) > CURRENT_TEST_OC_LIMIT_A) ||
+      (fabsf(i_abc.c) > CURRENT_TEST_OC_LIMIT_A))
+  {
+    pwmDisableOutput();
+    motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
+    motor_state = MOTOR_STATE_FAULT;
+    return;
+  }
+
+  /*
+   * Current PI를 완전히 우회
+   */
+  pwmSetDuty(0.5f, 0.5f, 0.5f);
+
+  /*
+   * Monitor에는 i_abc 값만 저장
+   */
+}
+#endif
+
+/*
 static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 {
   motor_abc_f_t i_abc;
@@ -347,8 +378,30 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
   motor_dq_t i_dq;
   motor_dq_t v_dq;
   motor_alphabeta_t v_ab;
+  float max_phase_current;
 
   adcGetPhaseCurrent(&i_abc);
+
+  max_phase_current = fabsf(i_abc.a);
+
+  if (fabsf(i_abc.b) > max_phase_current)
+  {
+    max_phase_current = fabsf(i_abc.b);
+  }
+
+  if (fabsf(i_abc.c) > max_phase_current)
+  {
+    max_phase_current = fabsf(i_abc.c);
+  }
+
+  if (max_phase_current > CURRENT_TEST_OC_LIMIT_A)
+  {
+    pwmDisableOutput();
+
+    motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
+    motor_state = MOTOR_STATE_FAULT;
+    return;
+  }
 
   motor_monitor.ia = i_abc.a;
   motor_monitor.ib = i_abc.b;
@@ -390,8 +443,7 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 
   pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
 }
-#endif
-
+*/
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
 static void motorSpeedLoop(void)
 {

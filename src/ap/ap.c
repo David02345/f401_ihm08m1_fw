@@ -210,9 +210,9 @@ void apMain(void)
       adcGetCurrentOffset(&offset);
 
       uartPrintf(_DEF_UART1, "Current Raw : %u, %u, %u\r\n", raw.a, raw.b, raw.c);
-      uartPrintf(_DEF_UART1, "Current Off : %ld, %ld, %ld\r\n", (long)offset.a,
-                                                                (long)offset.b,
-                                                                (long)offset.c);
+      uartPrintf(_DEF_UART1, "Current Off : %ld, %ld, %ld\r\n\n", (long)offset.a,
+                                                                  (long)offset.b,
+                                                                  (long)offset.c);
 
 #if _USE_HALL_SENSOR
       int32_t hall_speed_e_mrad = (int32_t)(hallGetElectricalSpeed() * 1000.0f);
@@ -251,8 +251,8 @@ void apMain(void)
 
       hall_error_e_mrad = (int32_t)(hall_error_e * 1000.0f);
 
-      uartPrintf(_DEF_UART1, "Hall Theta E : %ld mrad\r\n", (long)hall_theta_e_mrad);
-      uartPrintf(_DEF_UART1, "Hall Error E : %ld mrad\r\n", (long)hall_error_e_mrad);
+      uartPrintf(_DEF_UART1, "Hall Theta E : %ld mrad\r\n",   (long)hall_theta_e_mrad);
+      uartPrintf(_DEF_UART1, "Hall Error E : %ld mrad\r\n\n", (long)hall_error_e_mrad);
 
 #endif
       int32_t vd_mv = (int32_t)(monitor.vd_cmd * 1000.0f);

@@ -32,6 +32,7 @@ typedef enum
   MOTOR_FAULT_OVERCURRENT      = 0x05U,
   MOTOR_FAULT_OPEN_LOOP_FAIL   = 0x06U,
   MOTOR_FAULT_BKIN             = 0x07U,
+  MOTOR_FAULT_SW_OVERCURRENT   = 0x08U,
 } motor_fault_t;
 
 
