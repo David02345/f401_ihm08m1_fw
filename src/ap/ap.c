@@ -26,6 +26,9 @@ void apMain(void)
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
   uint32_t current_test_start = 0U;
   bool current_test_stopped = false;
+
+  uint32_t current_test_adc_start_count = 0U;
+  bool current_test_started = false;
 #endif
 
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
@@ -37,11 +40,6 @@ void apMain(void)
 #else
   const uint32_t open_loop_test_time_ms = OPEN_LOOP_TEST_TIME_MS;
 #endif
-#endif
-
-#if !_USE_HALL_TEST_ONLY
-  uint32_t pretime_current = 0;
-  bool pretime_current_applied = false;
 #endif
 
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (_USE_HALL_OFFSET_CALIBRATION)
@@ -61,9 +59,11 @@ void apMain(void)
   {
     motorSetCurrentReference(0.0f, 0.0f);
 #if !_USE_HALL_TEST_ONLY
-    pwmEnableOutput();
-    pretime_current = millis();
+    current_test_adc_start_count = adcGetCurrentUpdateCount();
     current_test_start = millis();
+    current_test_started = true;
+
+    pwmEnableOutput();
 #endif
   }
 
@@ -100,27 +100,195 @@ void apMain(void)
 
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT)
 
-    if ((current_test_stopped == false) && (motorGetState() == MOTOR_STATE_CURRENT_LOOP) &&
+    if ((current_test_started == true) && (current_test_stopped == false) &&
+        (motorGetState() == MOTOR_STATE_CURRENT_LOOP) &&
         ((now - current_test_start) >= CURRENT_LOOP_TEST_TIME_MS))
     {
+      motorGetMonitor(&monitor);
+
+      uint32_t current_test_elapsed_ms = now - current_test_start;
+
+      uint32_t current_test_adc_end_count = adcGetCurrentUpdateCount();
+
+      uint32_t current_test_adc_samples = current_test_adc_end_count -
+                                          current_test_adc_start_count;
+
+      uint32_t current_test_adc_hz = 0U;
+
+      if (current_test_elapsed_ms > 0U)
+      {
+        current_test_adc_hz = (current_test_adc_samples * 1000U) / current_test_elapsed_ms;
+      }
+
+      int32_t ia_ma = (int32_t)(monitor.ia * 1000.0f);
+      int32_t ib_ma = (int32_t)(monitor.ib * 1000.0f);
+      int32_t ic_ma = (int32_t)(monitor.ic * 1000.0f);
+
+      int32_t current_sum_ma = (int32_t)((monitor.ia + monitor.ib + monitor.ic) * 1000.0f);
+
+      int32_t vd_mv = (int32_t)(monitor.vd_cmd * 1000.0f);
+      int32_t vq_mv = (int32_t)(monitor.vq_cmd * 1000.0f);
+
+      int32_t duty_u_permille = (int32_t)(monitor.duty_u * 1000.0f);
+      int32_t duty_v_permille = (int32_t)(monitor.duty_v * 1000.0f);
+      int32_t duty_w_permille = (int32_t)(monitor.duty_w * 1000.0f);
+
       motorSetCurrentReference(0.0f, 0.0f);
       motorStop();
       current_test_stopped = true;
+
+      prev_adc_count = current_test_adc_end_count;
+      uartPrintf(_DEF_UART1,
+                 "\r\n"
+                 "===== CURRENT NEUTRAL TEST =====\r\n");
+
+      uartPrintf(_DEF_UART1,
+                 "Stop Reason : 100 ms COMPLETE\r\n");
+
+      uartPrintf(_DEF_UART1,
+                 "Elapsed     : %lu ms\r\n",
+                 (unsigned long)current_test_elapsed_ms);
+
+      uartPrintf(_DEF_UART1,
+                 "ADC Samples : %lu\r\n",
+                 (unsigned long)current_test_adc_samples);
+
+      uartPrintf(_DEF_UART1,
+                 "ADC Hz      : %lu\r\n",
+                 (unsigned long)current_test_adc_hz);
+
+      uartPrintf(_DEF_UART1,
+                 "State Snap  : %d\r\n",
+                 (int)monitor.state);
+
+      uartPrintf(_DEF_UART1,
+                 "Fault       : %d\r\n\r\n",
+                 (int)monitor.fault);
+
+      uartPrintf(_DEF_UART1,
+                 "Ia          : %ld mA\r\n",
+                 (long)ia_ma);
+
+      uartPrintf(_DEF_UART1,
+                 "Ib          : %ld mA\r\n",
+                 (long)ib_ma);
+
+      uartPrintf(_DEF_UART1,
+                 "Ic          : %ld mA\r\n",
+                 (long)ic_ma);
+
+      uartPrintf(_DEF_UART1,
+                 "Iabc Sum    : %ld mA\r\n\r\n",
+                 (long)current_sum_ma);
+
+      uartPrintf(_DEF_UART1,
+                 "Vdq         : %ld / %ld mV\r\n",
+                 (long)vd_mv,
+                 (long)vq_mv);
+
+      uartPrintf(_DEF_UART1,
+                 "Duty UVW    : %ld / %ld / %ld permille\r\n",
+                 (long)duty_u_permille,
+                 (long)duty_v_permille,
+                 (long)duty_w_permille);
+
+      uartPrintf(_DEF_UART1,
+                 "RESULT      : PASS - NO SW OVERCURRENT\r\n");
+
+      uartPrintf(_DEF_UART1,
+                 "================================\r\n\r\n");
     }
-    else if (motorGetState() == MOTOR_STATE_FAULT)
+
+    /*
+     * [수정]
+     * Software overcurrent 발생 후 main-context 후처리
+     *
+     * motorCurrentLoop()에서 이미:
+     *   pwmDisableOutput()
+     *   motor_fault = MOTOR_FAULT_SW_OVERCURRENT
+     *   motor_state = MOTOR_STATE_FAULT
+     *
+     * 가 실행된 상태다.
+     */
+    else if ((current_test_started == true) &&
+             (current_test_stopped == false) &&
+             (motorGetState() == MOTOR_STATE_FAULT))
     {
+      // [수정] ADC/PWM을 정지하기 전에 trip 순간의 monitor 값을 저장
+      motorGetMonitor(&monitor);
+
+      uint32_t current_test_elapsed_ms =
+          now - current_test_start;
+
+      uint32_t current_test_adc_end_count =
+          adcGetCurrentUpdateCount();
+
+      uint32_t current_test_adc_samples =
+          current_test_adc_end_count -
+          current_test_adc_start_count;
+
+      uint32_t current_test_adc_hz = 0U;
+
+      if (current_test_elapsed_ms > 0U)
+      {
+        current_test_adc_hz =
+            (current_test_adc_samples * 1000U) /
+            current_test_elapsed_ms;
+      }
+
+      int32_t ia_ma =
+          (int32_t)(monitor.ia * 1000.0f);
+
+      int32_t ib_ma =
+          (int32_t)(monitor.ib * 1000.0f);
+
+      int32_t ic_ma =
+          (int32_t)(monitor.ic * 1000.0f);
+
+      int32_t current_sum_ma =
+          (int32_t)((monitor.ia +
+                     monitor.ib +
+                     monitor.ic) * 1000.0f);
+
+      int32_t vd_mv =
+          (int32_t)(monitor.vd_cmd * 1000.0f);
+
+      int32_t vq_mv =
+          (int32_t)(monitor.vq_cmd * 1000.0f);
+
+      int32_t duty_u_permille =
+          (int32_t)(monitor.duty_u * 1000.0f);
+
+      int32_t duty_v_permille =
+          (int32_t)(monitor.duty_v * 1000.0f);
+
+      int32_t duty_w_permille =
+          (int32_t)(monitor.duty_w * 1000.0f);
+
+      motorSetFault(monitor.fault);
+
       current_test_stopped = true;
-    }
 
-#if (!_USE_HALL_TEST_ONLY)
-    if ((motorGetState() == MOTOR_STATE_CURRENT_LOOP) &&
-        (pretime_current_applied == false) && ((now - pretime_current) >= 1000U))
-    {
-      motorSetCurrentReference(0.0f, 0.0f);
+      prev_adc_count = current_test_adc_end_count;
 
-      pretime_current_applied = true;
+      uartPrintf(_DEF_UART1, "\r\n" "===== CURRENT NEUTRAL TEST =====\r\n");
+      uartPrintf(_DEF_UART1, "Stop Reason : SW OVERCURRENT\r\n");
+      uartPrintf(_DEF_UART1, "Elapsed     : %lu ms\r\n", (unsigned long)current_test_elapsed_ms);
+      uartPrintf(_DEF_UART1, "ADC Samples : %lu\r\n", (unsigned long)current_test_adc_samples);
+      uartPrintf(_DEF_UART1, "ADC Hz      : %lu\r\n", (unsigned long)current_test_adc_hz);
+      uartPrintf(_DEF_UART1, "State Snap  : %d\r\n", (int)monitor.state);
+      uartPrintf(_DEF_UART1, "Fault       : %d\r\n\r\n", (int)monitor.fault);
+      uartPrintf(_DEF_UART1, "Ia          : %ld mA\r\n", (long)ia_ma);
+      uartPrintf(_DEF_UART1, "Ib          : %ld mA\r\n", (long)ib_ma);
+      uartPrintf(_DEF_UART1, "Ic          : %ld mA\r\n", (long)ic_ma);
+      uartPrintf(_DEF_UART1, "Iabc Sum    : %ld mA\r\n\r\n", (long)current_sum_ma);
+      uartPrintf(_DEF_UART1, "Vdq         : %ld / %ld mV\r\n", (long)vd_mv, (long)vq_mv);
+      uartPrintf(_DEF_UART1, "Duty UVW    : %ld / %ld / %ld permille\r\n", (long)duty_u_permille,
+                                                                           (long)duty_v_permille,
+                                                                           (long)duty_w_permille);
+      uartPrintf(_DEF_UART1, "RESULT      : FAIL - SW OVERCURRENT\r\n");
+      uartPrintf(_DEF_UART1, "================================\r\n\r\n");
     }
-#endif
 
 #endif
 

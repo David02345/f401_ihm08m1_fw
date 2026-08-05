@@ -160,8 +160,11 @@
 /** @defgroup Current Loop Define
   * @{
   */
+#define CURRENT_NEUTRAL_DIAG_ENABLE       1U
+
 #define CURRENT_LOOP_TEST_TIME_MS         100U
 #define CURRENT_TEST_OC_LIMIT_A           0.8f
+#define CURRENT_NEUTRAL_DUTY              0.5f
 /**
   * @}
   */
