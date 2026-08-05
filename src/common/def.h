@@ -160,7 +160,7 @@
 /** @defgroup Current Loop Define
   * @{
   */
-#define CURRENT_LOOP_TEST_TIME_MS         2000U
+#define CURRENT_LOOP_TEST_TIME_MS         100U
 #define CURRENT_TEST_OC_LIMIT_A           0.8f
 /**
   * @}

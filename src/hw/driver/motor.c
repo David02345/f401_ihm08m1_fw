@@ -12,7 +12,7 @@
 
 static volatile motor_state_t motor_state;
 static volatile motor_fault_t motor_fault = MOTOR_FAULT_NONE;
-//static motor_duty_t motor_duty;
+static motor_duty_t motor_duty;
 
 static pid_ctrl_t pi_id;
 static pid_ctrl_t pi_iq;
@@ -339,34 +339,65 @@ static void motorCurrentLoop(float id_ref,
                              float theta_e)
 {
   motor_abc_f_t i_abc;
+  motor_alphabeta_t i_ab;
+  motor_dq_t i_dq;
 
   (void)id_ref;
   (void)iq_ref;
-  (void)theta_e;
 
+  /*
+   * 상전류 측정
+   */
   adcGetPhaseCurrent(&i_abc);
 
   /*
-   * 소프트웨어 과전류 검사
+   * Id/Iq는 제어에 사용하지 않고 모니터링 목적으로만 계산
+   */
+  focClarke(i_abc.a, i_abc.b, i_abc.c, &i_ab);
+  focPark(i_ab.alpha, i_ab.beta, theta_e, &i_dq);
+
+  /*
+   * 과전류로 정지하더라도 마지막 측정값을 볼 수 있도록
+   * 차단 검사 전에 Monitor에 저장
+   */
+  motor_monitor.ia = i_abc.a;
+  motor_monitor.ib = i_abc.b;
+  motor_monitor.ic = i_abc.c;
+
+  motor_monitor.id_ref  = 0.0f;
+  motor_monitor.id_meas = i_dq.d;
+  motor_monitor.iq_ref  = 0.0f;
+  motor_monitor.iq_meas = i_dq.q;
+
+  motor_monitor.theta_e = theta_e;
+
+  motor_monitor.vd_cmd = 0.0f;
+  motor_monitor.vq_cmd = 0.0f;
+
+  motor_monitor.duty_u = 0.5f;
+  motor_monitor.duty_v = 0.5f;
+  motor_monitor.duty_w = 0.5f;
+
+  /*
+   * 소프트웨어 과전류 차단
    */
   if ((fabsf(i_abc.a) > CURRENT_TEST_OC_LIMIT_A) ||
       (fabsf(i_abc.b) > CURRENT_TEST_OC_LIMIT_A) ||
       (fabsf(i_abc.c) > CURRENT_TEST_OC_LIMIT_A))
   {
     pwmDisableOutput();
+
     motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
     motor_state = MOTOR_STATE_FAULT;
+
     return;
   }
 
   /*
-   * Current PI를 완전히 우회
+   * Neutral PWM:
+   * Current PI와 FOC 전압 생성을 완전히 우회
    */
   pwmSetDuty(0.5f, 0.5f, 0.5f);
-
-  /*
-   * Monitor에는 i_abc 값만 저장
-   */
 }
 #endif
 
