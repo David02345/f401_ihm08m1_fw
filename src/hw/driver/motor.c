@@ -12,7 +12,10 @@
 
 static volatile motor_state_t motor_state;
 static volatile motor_fault_t motor_fault = MOTOR_FAULT_NONE;
+#if !((MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+      (CURRENT_NEUTRAL_DIAG_ENABLE == 1U))
 static motor_duty_t motor_duty;
+#endif
 
 static pid_ctrl_t pi_id;
 static pid_ctrl_t pi_iq;
@@ -332,35 +335,41 @@ void motorLowSpeedTask(void)
 }
 */
 
-#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) || (MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED)
-
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
 static void motorNeutralPwmDiag(void)
 {
   motor_abc_f_t i_abc;
 
-  /*
-   * 1. ADC 전류 획득
-   * 진단 중 실행되는 유일한 연산 경로:
-   * ADC current -> software OC -> fixed neutral PWM
-   */
-  adcGetPhaseCurrent(&i_abc);
+    adcGetPhaseCurrent(&i_abc);
 
-  /*
-   * 2. Software overcurrent 검사
-   * 어떤 좌표변환이나 PI 계산보다 먼저 실행한다.
-   */
-  if ((fabsf(i_abc.a) > CURRENT_TEST_OC_LIMIT_A) ||
-      (fabsf(i_abc.b) > CURRENT_TEST_OC_LIMIT_A) ||
-      (fabsf(i_abc.c) > CURRENT_TEST_OC_LIMIT_A))
-  {
-    /*
-     * 반드시 fault/state/monitor 처리보다 MOE 차단을 먼저 실행한다.
-     */
-    pwmDisableOutput();
+    if ((fabsf(i_abc.a) > CURRENT_TEST_OC_LIMIT_A) ||
+        (fabsf(i_abc.b) > CURRENT_TEST_OC_LIMIT_A) ||
+        (fabsf(i_abc.c) > CURRENT_TEST_OC_LIMIT_A))
+    {
+      pwmDisableOutput();
 
-    /*
-     * MOE를 끈 뒤, 이미 로컬 변수에 저장된 trip sample을 기록한다.
-     */
+      motor_monitor.ia = i_abc.a;
+      motor_monitor.ib = i_abc.b;
+      motor_monitor.ic = i_abc.c;
+
+      motor_monitor.id_meas = 0.0f;
+      motor_monitor.iq_meas = 0.0f;
+      motor_monitor.id_ref  = 0.0f;
+      motor_monitor.iq_ref  = 0.0f;
+
+      motor_monitor.theta_e = 0.0f;
+      motor_monitor.vd_cmd  = 0.0f;
+      motor_monitor.vq_cmd  = 0.0f;
+
+      motor_monitor.duty_u = CURRENT_NEUTRAL_DUTY;
+      motor_monitor.duty_v = CURRENT_NEUTRAL_DUTY;
+      motor_monitor.duty_w = CURRENT_NEUTRAL_DUTY;
+
+      motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
+      motor_state = MOTOR_STATE_FAULT;
+      return;
+    }
+
     motor_monitor.ia = i_abc.a;
     motor_monitor.ib = i_abc.b;
     motor_monitor.ic = i_abc.c;
@@ -378,45 +387,11 @@ static void motorNeutralPwmDiag(void)
     motor_monitor.duty_v = CURRENT_NEUTRAL_DUTY;
     motor_monitor.duty_w = CURRENT_NEUTRAL_DUTY;
 
-    motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
-    motor_state = MOTOR_STATE_FAULT;
-    return;
+    pwmSetDuty(CURRENT_NEUTRAL_DUTY,
+               CURRENT_NEUTRAL_DUTY,
+               CURRENT_NEUTRAL_DUTY);
   }
-
-  /*
-   * 3. 정상 sample monitor 갱신
-   */
-  motor_monitor.ia = i_abc.a;
-  motor_monitor.ib = i_abc.b;
-  motor_monitor.ic = i_abc.c;
-
-  /*
-   * dq 경로가 실행되지 않았으므로 dq 값은 계산 결과가 아니다.
-   * UART에는 별도로 "BYPASSED"라고 표시하는 것이 좋다.
-   */
-  motor_monitor.id_meas = 0.0f;
-  motor_monitor.iq_meas = 0.0f;
-  motor_monitor.id_ref  = 0.0f;
-  motor_monitor.iq_ref  = 0.0f;
-
-  motor_monitor.theta_e = 0.0f;
-  motor_monitor.vd_cmd  = 0.0f;
-  motor_monitor.vq_cmd  = 0.0f;
-
-  motor_monitor.duty_u = CURRENT_NEUTRAL_DUTY;
-  motor_monitor.duty_v = CURRENT_NEUTRAL_DUTY;
-  motor_monitor.duty_w = CURRENT_NEUTRAL_DUTY;
-
-  /*
-   * 4. 세 상에 동일한 duty 출력
-   */
-  pwmSetDuty(CURRENT_NEUTRAL_DUTY,
-             CURRENT_NEUTRAL_DUTY,
-             CURRENT_NEUTRAL_DUTY);
-}
-
 #endif
-
 /*
 static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 {
@@ -771,7 +746,9 @@ static void motorOpenLoop(void)
 void motorControlUpdate(void)
 {
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
+#if CURRENT_NEUTRAL_DIAG_ENABLE == 0U
   float theta_e;
+#endif
 
   if (motor_state != MOTOR_STATE_CURRENT_LOOP)
   {
