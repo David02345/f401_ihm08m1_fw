@@ -172,9 +172,7 @@ void hallUpdate(void)
     hall_angle_e = center_angle;
   }
 
-  hall_angle_e = wrapFloat(hall_angle_e,
-                           0.0f,
-                           2.0f * PI);
+  hall_angle_e = wrapFloat(hall_angle_e, 0.0f, 2.0f * PI);
 
   if ((new_dir != 0) && (dt_cycles > 0U))
   {

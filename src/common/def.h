@@ -143,7 +143,7 @@
 #define HALL_CAL_SPEED_E                  0.40f
 #define HALL_CAL_DIRECTION                (-1.0f)
 
-#define HALL_CAL_TEST_TIME_MS             8000U
+#define HALL_CAL_TEST_TIME_MS             24000U
 /**
   * @}
   */
@@ -161,6 +161,8 @@
 #define OPEN_LOOP_ACCEL_E                 0.2f
 #define OPEN_LOOP_TARGET_SPEED            0.7f
 #define OPEN_LOOP_TARGET_VQ               0.4f
+
+#define OPEN_LOOP_TEST_TIME_MS            8000U
 /**
   * @}
   */

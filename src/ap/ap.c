@@ -31,6 +31,13 @@ void apMain(void)
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
   uint32_t open_loop_start = 0U;
   bool open_loop_stopped = false;
+
+#if _USE_HALL_OFFSET_CALIBRATION
+  const uint32_t open_loop_test_time_ms = HALL_CAL_TEST_TIME_MS;
+#else
+  const uint32_t open_loop_test_time_ms = OPEN_LOOP_TEST_TIME_MS;
+#endif
+
 #endif
 
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (_USE_HALL_OFFSET_CALIBRATION)
@@ -86,9 +93,8 @@ void apMain(void)
 
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 
-    if ((open_loop_stopped == false) &&
-        (motorGetState() == MOTOR_STATE_OPEN_LOOP) &&
-        ((now - open_loop_start) >= HALL_CAL_TEST_TIME_MS))
+    if ((open_loop_stopped == false) && (motorGetState() == MOTOR_STATE_OPEN_LOOP) &&
+        ((now - open_loop_start) >= open_loop_test_time_ms))
     {
       motorStop();
       open_loop_stopped = true;
