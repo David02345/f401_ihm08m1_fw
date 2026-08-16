@@ -20,7 +20,8 @@ static volatile motor_fault_t motor_fault = MOTOR_FAULT_NONE;
 static volatile uint32_t current_diag_sample_count = 0U;
 static volatile bool current_diag_active = false;
 static volatile bool current_diag_done = false;
-
+static volatile motor_abc_f_t current_diag_i_min;
+static volatile motor_abc_f_t current_diag_i_max;
 #endif
 
 
@@ -265,6 +266,16 @@ void motorCurrentDiagStart(void)
 
   current_diag_sample_count = 0U;
   current_diag_done = false;
+
+  // [수정] Min/Max는 첫 번째 ADC sample에서 실제값으로 초기화한다.
+  current_diag_i_min.a = 0.0f;
+  current_diag_i_min.b = 0.0f;
+  current_diag_i_min.c = 0.0f;
+
+  current_diag_i_max.a = 0.0f;
+  current_diag_i_max.b = 0.0f;
+  current_diag_i_max.c = 0.0f;
+
   current_diag_active = true;
 
   pwmEnableOutput();
@@ -287,6 +298,23 @@ uint32_t motorCurrentDiagGetSampleCount(void)
   return current_diag_sample_count;
 }
 
+void motorCurrentDiagGetCurrentMinMax(motor_abc_f_t *i_min,
+                                      motor_abc_f_t *i_max)
+{
+  if (i_min != NULL)
+  {
+    i_min->a = current_diag_i_min.a;
+    i_min->b = current_diag_i_min.b;
+    i_min->c = current_diag_i_min.c;
+  }
+
+  if (i_max != NULL)
+  {
+    i_max->a = current_diag_i_max.a;
+    i_max->b = current_diag_i_max.b;
+    i_max->c = current_diag_i_max.c;
+  }
+}
 #endif
 
 
@@ -449,7 +477,55 @@ static void motorNeutralPwmDiag(void)
    * 실제 시험 중 들어온 ADC sample만 count한다.
    */
   current_diag_sample_count++;
+  /*
+   * [수정]
+   * 30 ms 동안 Ia/Ib/Ic의 Min/Max 저장
+   */
+  if (current_diag_sample_count == 1U)
+  {
+    // 첫 sample을 Min/Max 초기값으로 사용
+    current_diag_i_min.a = i_abc.a;
+    current_diag_i_min.b = i_abc.b;
+    current_diag_i_min.c = i_abc.c;
 
+    current_diag_i_max.a = i_abc.a;
+    current_diag_i_max.b = i_abc.b;
+    current_diag_i_max.c = i_abc.c;
+  }
+  else
+  {
+    if (i_abc.a < current_diag_i_min.a)
+    {
+      current_diag_i_min.a = i_abc.a;
+    }
+
+    if (i_abc.a > current_diag_i_max.a)
+    {
+      current_diag_i_max.a = i_abc.a;
+    }
+
+
+    if (i_abc.b < current_diag_i_min.b)
+    {
+      current_diag_i_min.b = i_abc.b;
+    }
+
+    if (i_abc.b > current_diag_i_max.b)
+    {
+      current_diag_i_max.b = i_abc.b;
+    }
+
+
+    if (i_abc.c < current_diag_i_min.c)
+    {
+      current_diag_i_min.c = i_abc.c;
+    }
+
+    if (i_abc.c > current_diag_i_max.c)
+    {
+      current_diag_i_max.c = i_abc.c;
+    }
+  }
 
   /*
    * 2. 마지막 측정값 monitor 저장

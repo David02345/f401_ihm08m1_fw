@@ -174,7 +174,7 @@
 #define CURRENT_TEST_OC_LIMIT_A           0.8f
 
 // [수정] Fixed alpha test command
-#define CURRENT_TEST_V_ALPHA              0.02f
+#define CURRENT_TEST_V_ALPHA              0.04f
 #define CURRENT_TEST_V_BETA               0.00f
 
 #define CURRENT_NEUTRAL_DUTY              0.5f

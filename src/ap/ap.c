@@ -135,6 +135,9 @@ void apMain(void)
       int32_t ic_ma;
       int32_t current_sum_ma;
 
+      motor_abc_f_t current_min;
+      motor_abc_f_t current_max;
+
       int32_t vd_mv;
       int32_t vq_mv;
 
@@ -147,7 +150,9 @@ void apMain(void)
        * motorStop() 전에 마지막 monitor 값을 저장한다.
        */
       motorGetMonitor(&monitor);
-
+      // [수정] 30 ms 전체 Min/Max snapshot
+      motorCurrentDiagGetCurrentMinMax(&current_min,
+                                       &current_max);
       // [수정]
       // 실제 ISR 진단 sample 수 기준으로 계산
       current_test_adc_samples =
@@ -205,7 +210,7 @@ void apMain(void)
       uartPrintf(
           _DEF_UART1,
           "\r\n"
-          "===== CURRENT NEUTRAL TEST =====\r\n");
+          "===== CURRENT FIXED ALPHA TEST =====\r\n");
 
       uartPrintf(
           _DEF_UART1,
@@ -257,7 +262,23 @@ void apMain(void)
           "Iabc Sum    : %ld mA\r\n\r\n",
           (long)current_sum_ma);
 
+      uartPrintf(
+          _DEF_UART1,
+          "Ia Min/Max  : %ld / %ld mA\r\n",
+          (long)(current_min.a * 1000.0f),
+          (long)(current_max.a * 1000.0f));
 
+      uartPrintf(
+          _DEF_UART1,
+          "Ib Min/Max  : %ld / %ld mA\r\n",
+          (long)(current_min.b * 1000.0f),
+          (long)(current_max.b * 1000.0f));
+
+      uartPrintf(
+          _DEF_UART1,
+          "Ic Min/Max  : %ld / %ld mA\r\n\r\n",
+          (long)(current_min.c * 1000.0f),
+          (long)(current_max.c * 1000.0f));
       uartPrintf(
           _DEF_UART1,
           "Vdq         : %ld / %ld mV\r\n",
@@ -310,6 +331,9 @@ void apMain(void)
       int32_t ic_ma;
       int32_t current_sum_ma;
 
+      motor_abc_f_t current_min;
+      motor_abc_f_t current_max;
+
       int32_t vd_mv;
       int32_t vq_mv;
 
@@ -329,6 +353,10 @@ void apMain(void)
        * [수정]
        * motorSetFault() 호출 전 Fault 원인을 별도 변수에 저장한다.
        */
+      // [수정]
+      motorCurrentDiagGetCurrentMinMax(&current_min,
+                                       &current_max);
+
       test_fault = monitor.fault;
 
 
@@ -466,6 +494,23 @@ void apMain(void)
           "Iabc Sum    : %ld mA\r\n\r\n",
           (long)current_sum_ma);
 
+      uartPrintf(
+          _DEF_UART1,
+          "Ia Min/Max  : %ld / %ld mA\r\n",
+          (long)(current_min.a * 1000.0f),
+          (long)(current_max.a * 1000.0f));
+
+      uartPrintf(
+          _DEF_UART1,
+          "Ib Min/Max  : %ld / %ld mA\r\n",
+          (long)(current_min.b * 1000.0f),
+          (long)(current_max.b * 1000.0f));
+
+      uartPrintf(
+          _DEF_UART1,
+          "Ic Min/Max  : %ld / %ld mA\r\n\r\n",
+          (long)(current_min.c * 1000.0f),
+          (long)(current_max.c * 1000.0f));
 
       uartPrintf(
           _DEF_UART1,
