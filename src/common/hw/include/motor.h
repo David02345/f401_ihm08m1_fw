@@ -37,5 +37,13 @@ motor_fault_t motorGetFault(void);
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (_USE_HALL_OFFSET_CALIBRATION)
 bool motorGetHallCalibrationEvent(int8_t *sector, int8_t *direction, float *theta_e);
 #endif
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
 
+// [수정] Fixed alpha diagnostic
+void motorCurrentDiagStart(void);
+bool motorCurrentDiagIsDone(void);
+uint32_t motorCurrentDiagGetSampleCount(void);
+
+#endif
 #endif /* SRC_COMMON_HW_INCLUDE_MOTOR_H_ */

@@ -25,10 +25,7 @@ void apMain(void)
 
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
 
-  uint32_t current_test_start = 0U;
   bool current_test_stopped = false;
-
-  uint32_t current_test_adc_start_count = 0U;
   bool current_test_started = false;
 
 #endif
@@ -77,13 +74,9 @@ void apMain(void)
 
 #if !_USE_HALL_TEST_ONLY
 
-    current_test_adc_start_count =
-        adcGetCurrentUpdateCount();
-
-    current_test_start = millis();
     current_test_started = true;
 
-    pwmEnableOutput();
+    motorCurrentDiagStart();
 
 #endif
   }
@@ -131,11 +124,9 @@ void apMain(void)
     if ((current_test_started == true) &&
         (current_test_stopped == false) &&
         (motorGetState() == MOTOR_STATE_CURRENT_LOOP) &&
-        ((now - current_test_start) >=
-         CURRENT_LOOP_TEST_TIME_MS))
+        (motorCurrentDiagIsDone() == true))
     {
       uint32_t current_test_elapsed_ms;
-      uint32_t current_test_adc_end_count;
       uint32_t current_test_adc_samples;
       uint32_t current_test_adc_hz = 0U;
 
@@ -157,22 +148,17 @@ void apMain(void)
        */
       motorGetMonitor(&monitor);
 
-      current_test_elapsed_ms =
-          now - current_test_start;
-
-      current_test_adc_end_count =
-          adcGetCurrentUpdateCount();
-
+      // [수정]
+      // 실제 ISR 진단 sample 수 기준으로 계산
       current_test_adc_samples =
-          current_test_adc_end_count -
-          current_test_adc_start_count;
+          motorCurrentDiagGetSampleCount();
 
-      if (current_test_elapsed_ms > 0U)
-      {
-        current_test_adc_hz =
-            (current_test_adc_samples * 1000U) /
-            current_test_elapsed_ms;
-      }
+      current_test_elapsed_ms =
+          (current_test_adc_samples *
+           CURRENT_LOOP_PERIOD_US) / 1000U;
+
+      current_test_adc_hz =
+          1000000U / CURRENT_LOOP_PERIOD_US;
 
 
       ia_ma =
@@ -213,7 +199,7 @@ void apMain(void)
       current_test_stopped = true;
 
       prev_adc_count =
-          current_test_adc_end_count;
+          adcGetCurrentUpdateCount();
 
 
       uartPrintf(
@@ -316,7 +302,6 @@ void apMain(void)
              (motorGetState() == MOTOR_STATE_FAULT))
     {
       uint32_t current_test_elapsed_ms;
-      uint32_t current_test_adc_end_count;
       uint32_t current_test_adc_samples;
       uint32_t current_test_adc_hz = 0U;
 
@@ -347,15 +332,17 @@ void apMain(void)
       test_fault = monitor.fault;
 
 
-      current_test_elapsed_ms =
-          now - current_test_start;
-
-      current_test_adc_end_count =
-          adcGetCurrentUpdateCount();
-
+      // [수정]
+      // trip이 발생한 실제 ISR sample 번호
       current_test_adc_samples =
-          current_test_adc_end_count -
-          current_test_adc_start_count;
+          motorCurrentDiagGetSampleCount();
+
+      current_test_elapsed_ms =
+          (current_test_adc_samples *
+           CURRENT_LOOP_PERIOD_US) / 1000U;
+
+      current_test_adc_hz =
+          1000000U / CURRENT_LOOP_PERIOD_US;
 
       if (current_test_elapsed_ms > 0U)
       {
@@ -405,8 +392,7 @@ void apMain(void)
 
       current_test_stopped = true;
 
-      prev_adc_count =
-          current_test_adc_end_count;
+      prev_adc_count = adcGetCurrentUpdateCount();
 
 
       uartPrintf(

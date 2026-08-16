@@ -165,7 +165,18 @@
 #define CURRENT_NEUTRAL_DIAG_ENABLE       1U
 
 #define CURRENT_LOOP_TEST_TIME_MS         30U
+#define CURRENT_LOOP_PERIOD_US            50U
+
+// [수정] 30 ms × 20 kHz = 600 samples
+#define CURRENT_LOOP_TEST_SAMPLE_COUNT    \
+        ((CURRENT_LOOP_TEST_TIME_MS * 1000U) / CURRENT_LOOP_PERIOD_US)
+
 #define CURRENT_TEST_OC_LIMIT_A           0.8f
+
+// [수정] Fixed alpha test command
+#define CURRENT_TEST_V_ALPHA              0.02f
+#define CURRENT_TEST_V_BETA               0.00f
+
 #define CURRENT_NEUTRAL_DUTY              0.5f
 /**
   * @}

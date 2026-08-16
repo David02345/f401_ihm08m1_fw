@@ -12,6 +12,18 @@
 
 static volatile motor_state_t motor_state;
 static volatile motor_fault_t motor_fault = MOTOR_FAULT_NONE;
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
+
+// [수정] ADC ISR 기준 시험 시간 관리
+static volatile uint32_t current_diag_sample_count = 0U;
+static volatile bool current_diag_active = false;
+static volatile bool current_diag_done = false;
+
+#endif
+
+
 #if !((MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
       (CURRENT_NEUTRAL_DIAG_ENABLE == 1U))
 static motor_duty_t motor_duty;
@@ -216,11 +228,83 @@ void motorStart(void)
   //pwmEnableOutput();
 }
 
+
+
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
+
+void motorCurrentDiagStart(void)
+{
+  uint32_t primask;
+
+  /*
+   * [수정]
+   * MOE를 켜기 전에 +alpha 고정 duty를 CCR에 미리 넣는다.
+   *
+   * 따라서 MOE ON 순간부터
+   * Neutral 50%가 아니라 +alpha test PWM이 바로 출력된다.
+   */
+  focGenerateSPWM(CURRENT_TEST_V_ALPHA,
+                  CURRENT_TEST_V_BETA,
+                  motor_vbus,
+                  &motor_duty);
+
+  pwmSetDuty(motor_duty.u,
+             motor_duty.v,
+             motor_duty.w);
+
+
+  /*
+   * [수정]
+   * sample counter reset과 MOE ON 사이에
+   * ADC ISR이 끼지 못하도록 잠깐 interrupt 차단
+   */
+  primask = __get_PRIMASK();
+  __disable_irq();
+
+  current_diag_sample_count = 0U;
+  current_diag_done = false;
+  current_diag_active = true;
+
+  pwmEnableOutput();
+
+  if (primask == 0U)
+  {
+    __enable_irq();
+  }
+}
+
+
+bool motorCurrentDiagIsDone(void)
+{
+  return current_diag_done;
+}
+
+
+uint32_t motorCurrentDiagGetSampleCount(void)
+{
+  return current_diag_sample_count;
+}
+
+#endif
+
+
+
+
 void motorStop(void)
 {
   pwmDisableOutput();
   adcInjectedStop();
   pwmStop();
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
+
+  // [수정]
+  current_diag_active = false;
+
+#endif
 
   pidReset(&pi_id);
   pidReset(&pi_iq);
@@ -335,46 +419,41 @@ void motorLowSpeedTask(void)
 }
 */
 
-#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
+
 static void motorNeutralPwmDiag(void)
 {
   motor_abc_f_t i_abc;
 
-  const float test_v_alpha = 0.02f;
-  const float test_v_beta  = 0.00f;
 
-  focGenerateSPWM(test_v_alpha, test_v_beta, motor_vbus, &motor_duty);
-
-  adcGetPhaseCurrent(&i_abc);
-
-  if ((fabsf(i_abc.a) > CURRENT_TEST_OC_LIMIT_A) ||
-      (fabsf(i_abc.b) > CURRENT_TEST_OC_LIMIT_A) ||
-      (fabsf(i_abc.c) > CURRENT_TEST_OC_LIMIT_A))
+  /*
+   * [수정]
+   * 아직 실제 시험이 시작되지 않았거나
+   * 600 samples 완료 후라면 아무것도 하지 않는다.
+   */
+  if (current_diag_active == false)
   {
-    pwmDisableOutput();
-
-    motor_monitor.ia = i_abc.a;
-    motor_monitor.ib = i_abc.b;
-    motor_monitor.ic = i_abc.c;
-
-    motor_monitor.id_meas = 0.0f;
-    motor_monitor.iq_meas = 0.0f;
-    motor_monitor.id_ref  = 0.0f;
-    motor_monitor.iq_ref  = 0.0f;
-
-    motor_monitor.theta_e = 0.0f;
-    motor_monitor.vd_cmd  = 0.0f;
-    motor_monitor.vq_cmd  = 0.0f;
-
-    motor_monitor.duty_u = CURRENT_NEUTRAL_DUTY;
-    motor_monitor.duty_v = CURRENT_NEUTRAL_DUTY;
-    motor_monitor.duty_w = CURRENT_NEUTRAL_DUTY;
-
-    motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
-    motor_state = MOTOR_STATE_FAULT;
     return;
   }
 
+
+  /*
+   * 1. Phase current 측정
+   */
+  adcGetPhaseCurrent(&i_abc);
+
+
+  /*
+   * [수정]
+   * 실제 시험 중 들어온 ADC sample만 count한다.
+   */
+  current_diag_sample_count++;
+
+
+  /*
+   * 2. 마지막 측정값 monitor 저장
+   */
   motor_monitor.ia = i_abc.a;
   motor_monitor.ib = i_abc.b;
   motor_monitor.ic = i_abc.c;
@@ -386,15 +465,70 @@ static void motorNeutralPwmDiag(void)
 
   motor_monitor.theta_e = 0.0f;
 
-  motor_monitor.vd_cmd = test_v_alpha;
-  motor_monitor.vq_cmd = test_v_beta;
+  /*
+   * 이번 시험에서는 vd/vq monitor 필드를
+   * alpha/beta 출력용으로 임시 사용
+   */
+  motor_monitor.vd_cmd = CURRENT_TEST_V_ALPHA;
+  motor_monitor.vq_cmd = CURRENT_TEST_V_BETA;
 
   motor_monitor.duty_u = motor_duty.u;
   motor_monitor.duty_v = motor_duty.v;
   motor_monitor.duty_w = motor_duty.w;
 
-  pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
+
+  /*
+   * 3. Software overcurrent
+   *
+   * 시간 종료보다 우선 검사한다.
+   * 600번째 sample에서 0.8 A가 넘더라도 PASS가 아니라 Fault.
+   */
+  if ((fabsf(i_abc.a) > CURRENT_TEST_OC_LIMIT_A) ||
+      (fabsf(i_abc.b) > CURRENT_TEST_OC_LIMIT_A) ||
+      (fabsf(i_abc.c) > CURRENT_TEST_OC_LIMIT_A))
+  {
+    /*
+     * [중요]
+     * 다른 작업보다 가장 먼저 MOE OFF
+     */
+    pwmDisableOutput();
+
+    current_diag_active = false;
+    current_diag_done = false;
+
+    motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
+    motor_state = MOTOR_STATE_FAULT;
+
+    return;
+  }
+
+
+  /*
+   * [수정]
+   * 20 kHz × 30 ms = 600 samples
+   *
+   * 600번째 ADC sample에서 ISR이 직접 MOE를 끈다.
+   * main loop 실행 시점과 무관하다.
+   */
+  if (current_diag_sample_count >=
+      CURRENT_LOOP_TEST_SAMPLE_COUNT)
+  {
+    pwmDisableOutput();
+
+    current_diag_active = false;
+    current_diag_done = true;
+
+    return;
+  }
+
+
+  /*
+   * Fixed alpha duty는 motorCurrentDiagStart()에서
+   * 이미 CCR에 설정되어 있으므로 여기서는 다시
+   * pwmSetDuty()를 호출할 필요가 없다.
+   */
 }
+
 #endif
 /*
 static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
@@ -814,6 +948,14 @@ void motorSetFault(motor_fault_t fault)
 
   adcInjectedStop();
   pwmStop();
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
+
+  // [수정]
+  current_diag_active = false;
+
+#endif
 
   pidReset(&pi_id);
   pidReset(&pi_iq);
