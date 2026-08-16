@@ -16,7 +16,7 @@ static volatile motor_fault_t motor_fault = MOTOR_FAULT_NONE;
       (CURRENT_NEUTRAL_DIAG_ENABLE == 1U))
 static motor_duty_t motor_duty;
 #endif
-
+static motor_duty_t motor_duty;
 static pid_ctrl_t pi_id;
 static pid_ctrl_t pi_iq;
 static pid_ctrl_t pi_spd;
@@ -340,35 +340,18 @@ static void motorNeutralPwmDiag(void)
 {
   motor_abc_f_t i_abc;
 
-    adcGetPhaseCurrent(&i_abc);
+  const float test_v_alpha = 0.02f;
+  const float test_v_beta  = 0.00f;
 
-    if ((fabsf(i_abc.a) > CURRENT_TEST_OC_LIMIT_A) ||
-        (fabsf(i_abc.b) > CURRENT_TEST_OC_LIMIT_A) ||
-        (fabsf(i_abc.c) > CURRENT_TEST_OC_LIMIT_A))
-    {
-      pwmDisableOutput();
+  focGenerateSPWM(test_v_alpha, test_v_beta, motor_vbus, &motor_duty);
 
-      motor_monitor.ia = i_abc.a;
-      motor_monitor.ib = i_abc.b;
-      motor_monitor.ic = i_abc.c;
+  adcGetPhaseCurrent(&i_abc);
 
-      motor_monitor.id_meas = 0.0f;
-      motor_monitor.iq_meas = 0.0f;
-      motor_monitor.id_ref  = 0.0f;
-      motor_monitor.iq_ref  = 0.0f;
-
-      motor_monitor.theta_e = 0.0f;
-      motor_monitor.vd_cmd  = 0.0f;
-      motor_monitor.vq_cmd  = 0.0f;
-
-      motor_monitor.duty_u = CURRENT_NEUTRAL_DUTY;
-      motor_monitor.duty_v = CURRENT_NEUTRAL_DUTY;
-      motor_monitor.duty_w = CURRENT_NEUTRAL_DUTY;
-
-      motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
-      motor_state = MOTOR_STATE_FAULT;
-      return;
-    }
+  if ((fabsf(i_abc.a) > CURRENT_TEST_OC_LIMIT_A) ||
+      (fabsf(i_abc.b) > CURRENT_TEST_OC_LIMIT_A) ||
+      (fabsf(i_abc.c) > CURRENT_TEST_OC_LIMIT_A))
+  {
+    pwmDisableOutput();
 
     motor_monitor.ia = i_abc.a;
     motor_monitor.ib = i_abc.b;
@@ -387,10 +370,31 @@ static void motorNeutralPwmDiag(void)
     motor_monitor.duty_v = CURRENT_NEUTRAL_DUTY;
     motor_monitor.duty_w = CURRENT_NEUTRAL_DUTY;
 
-    pwmSetDuty(CURRENT_NEUTRAL_DUTY,
-               CURRENT_NEUTRAL_DUTY,
-               CURRENT_NEUTRAL_DUTY);
+    motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
+    motor_state = MOTOR_STATE_FAULT;
+    return;
   }
+
+  motor_monitor.ia = i_abc.a;
+  motor_monitor.ib = i_abc.b;
+  motor_monitor.ic = i_abc.c;
+
+  motor_monitor.id_meas = 0.0f;
+  motor_monitor.iq_meas = 0.0f;
+  motor_monitor.id_ref  = 0.0f;
+  motor_monitor.iq_ref  = 0.0f;
+
+  motor_monitor.theta_e = 0.0f;
+
+  motor_monitor.vd_cmd = test_v_alpha;
+  motor_monitor.vq_cmd = test_v_beta;
+
+  motor_monitor.duty_u = motor_duty.u;
+  motor_monitor.duty_v = motor_duty.v;
+  motor_monitor.duty_w = motor_duty.w;
+
+  pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
+}
 #endif
 /*
 static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)

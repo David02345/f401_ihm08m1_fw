@@ -16,6 +16,8 @@
 #include <stdlib.h>
 #include <math.h>
 
+//R_UV ≈ R_VW ≈ R_WU ≈ 0.157 Ω
+
 /** @defgroup Math Utils
   * @{
   */
@@ -162,7 +164,7 @@
   */
 #define CURRENT_NEUTRAL_DIAG_ENABLE       1U
 
-#define CURRENT_LOOP_TEST_TIME_MS         100U
+#define CURRENT_LOOP_TEST_TIME_MS         30U
 #define CURRENT_TEST_OC_LIMIT_A           0.8f
 #define CURRENT_NEUTRAL_DUTY              0.5f
 /**

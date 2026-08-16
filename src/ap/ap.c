@@ -223,8 +223,8 @@ void apMain(void)
 
       uartPrintf(
           _DEF_UART1,
-          "Stop Reason : 100 ms COMPLETE\r\n");
-
+          "Stop Reason : %lu ms COMPLETE\r\n",
+                     (unsigned long)CURRENT_LOOP_TEST_TIME_MS);
       uartPrintf(
           _DEF_UART1,
           "Elapsed     : %lu ms\r\n",
@@ -412,7 +412,7 @@ void apMain(void)
       uartPrintf(
           _DEF_UART1,
           "\r\n"
-          "===== CURRENT NEUTRAL TEST =====\r\n");
+          "===== CURRENT FIXED ALPHA TEST =====\r\n");
 
 
       /*
