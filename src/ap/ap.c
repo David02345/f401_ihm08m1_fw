@@ -70,7 +70,7 @@ void apMain(void)
 
   if (motorGetState() == MOTOR_STATE_CURRENT_LOOP)
   {
-    motorSetCurrentReference(0.0f, 0.1f);
+    motorSetCurrentReference(0.0f, 0.2f); // 여기서 설정
 
 #if !_USE_HALL_TEST_ONLY
 
@@ -206,7 +206,7 @@ void apMain(void)
       uartPrintf(
           _DEF_UART1,
           "\r\n"
-          "===== CURRENT P-ONLY ZERO TEST =====\r\n");
+          "===== FIXED +VQ 40mV TEST =====\r\n");
 
       uartPrintf(
           _DEF_UART1,
