@@ -29,8 +29,8 @@
 /** @defgroup PID Gains for Current, Speed, Position Control
   * @{
   */
-#define CUR_KP                            0.2f
-#define CUR_KI                            50.0f
+#define CUR_KP                            0.01f  //0.2f
+#define CUR_KI                            0.0f   //50.0f
 #define CUR_KD                            0.0f
 #define SPD_KP                            0.05f
 #define SPD_KI                            1.0f
@@ -174,8 +174,8 @@
 #define CURRENT_TEST_OC_LIMIT_A           0.8f
 
 // [수정] Fixed alpha test command
-#define CURRENT_TEST_V_ALPHA              0.04f
-#define CURRENT_TEST_V_BETA               0.00f
+#define CURRENT_TEST_V_ALPHA              0.00f
+#define CURRENT_TEST_V_BETA               0.04f
 
 #define CURRENT_NEUTRAL_DUTY              0.5f
 /**

@@ -70,7 +70,7 @@ static int8_t hall_cal_prev_sector = -1;
 
 #endif
 #endif
-
+static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e);
 bool motorInit(void)
 {
   bool ret = true;
@@ -239,35 +239,33 @@ void motorCurrentDiagStart(void)
 {
   uint32_t primask;
 
+
   /*
    * [수정]
-   * MOE를 켜기 전에 +alpha 고정 duty를 CCR에 미리 넣는다.
+   * Current loop 시작 전 PWM을 neutral 상태로 준비.
    *
-   * 따라서 MOE ON 순간부터
-   * Neutral 50%가 아니라 +alpha test PWM이 바로 출력된다.
+   * 첫 ADC ISR부터 P-only current loop가
+   * 새로운 duty를 계산한다.
    */
-  focGenerateSPWM(CURRENT_TEST_V_ALPHA,
-                  CURRENT_TEST_V_BETA,
-                  motor_vbus,
-                  &motor_duty);
+  motor_duty.u = 0.5f;
+  motor_duty.v = 0.5f;
+  motor_duty.w = 0.5f;
 
   pwmSetDuty(motor_duty.u,
              motor_duty.v,
              motor_duty.w);
 
 
-  /*
-   * [수정]
-   * sample counter reset과 MOE ON 사이에
-   * ADC ISR이 끼지 못하도록 잠깐 interrupt 차단
-   */
   primask = __get_PRIMASK();
   __disable_irq();
 
+
+  /*
+   * 30 ms test counter reset
+   */
   current_diag_sample_count = 0U;
   current_diag_done = false;
 
-  // [수정] Min/Max는 첫 번째 ADC sample에서 실제값으로 초기화한다.
   current_diag_i_min.a = 0.0f;
   current_diag_i_min.b = 0.0f;
   current_diag_i_min.c = 0.0f;
@@ -278,7 +276,12 @@ void motorCurrentDiagStart(void)
 
   current_diag_active = true;
 
+
+  /*
+   * 실제 출력 시작
+   */
   pwmEnableOutput();
+
 
   if (primask == 0U)
   {
@@ -446,19 +449,17 @@ void motorLowSpeedTask(void)
   motor_temp_raw = adcGetTempRaw();
 }
 */
-
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
     (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
 
 static void motorNeutralPwmDiag(void)
 {
-  motor_abc_f_t i_abc;
+  float theta_e;
 
 
   /*
-   * [수정]
-   * 아직 실제 시험이 시작되지 않았거나
-   * 600 samples 완료 후라면 아무것도 하지 않는다.
+   * 30 ms test가 시작되지 않았거나
+   * 이미 완료됐다면 아무것도 하지 않는다.
    */
   if (current_diag_active == false)
   {
@@ -467,124 +468,111 @@ static void motorNeutralPwmDiag(void)
 
 
   /*
-   * 1. Phase current 측정
+   * [수정]
+   * 실제 Current FOC에서 사용할 rotor electrical angle
    */
-  adcGetPhaseCurrent(&i_abc);
+#if _USE_HALL_SENSOR
+
+  theta_e = hallGetElectricalAngle();
+
+#elif _USE_ENCODER
+
+  theta_e = encoderGetElectricalAngle();
+
+#else
+
+#error "HALL SENSOR / ENCODER ERROR"
+
+#endif
 
 
   /*
    * [수정]
-   * 실제 시험 중 들어온 ADC sample만 count한다.
+   * 실제 0 A P-only Current Loop 실행
+   *
+   * current_id_ref = 0
+   * current_iq_ref = 0
+   *
+   * 는 ap.c에서 설정되어 있음.
+   */
+  motorCurrentLoop(current_id_ref,
+                   current_iq_ref,
+                   theta_e);
+
+
+  /*
+   * 이번 ISR sample 포함
    */
   current_diag_sample_count++;
+
+
   /*
-   * [수정]
-   * 30 ms 동안 Ia/Ib/Ic의 Min/Max 저장
+   * 30 ms 동안 Ia/Ib/Ic Min/Max 기록
    */
   if (current_diag_sample_count == 1U)
   {
-    // 첫 sample을 Min/Max 초기값으로 사용
-    current_diag_i_min.a = i_abc.a;
-    current_diag_i_min.b = i_abc.b;
-    current_diag_i_min.c = i_abc.c;
+    current_diag_i_min.a = motor_monitor.ia;
+    current_diag_i_min.b = motor_monitor.ib;
+    current_diag_i_min.c = motor_monitor.ic;
 
-    current_diag_i_max.a = i_abc.a;
-    current_diag_i_max.b = i_abc.b;
-    current_diag_i_max.c = i_abc.c;
+    current_diag_i_max.a = motor_monitor.ia;
+    current_diag_i_max.b = motor_monitor.ib;
+    current_diag_i_max.c = motor_monitor.ic;
   }
   else
   {
-    if (i_abc.a < current_diag_i_min.a)
+    if (motor_monitor.ia < current_diag_i_min.a)
     {
-      current_diag_i_min.a = i_abc.a;
+      current_diag_i_min.a = motor_monitor.ia;
     }
 
-    if (i_abc.a > current_diag_i_max.a)
+    if (motor_monitor.ia > current_diag_i_max.a)
     {
-      current_diag_i_max.a = i_abc.a;
-    }
-
-
-    if (i_abc.b < current_diag_i_min.b)
-    {
-      current_diag_i_min.b = i_abc.b;
-    }
-
-    if (i_abc.b > current_diag_i_max.b)
-    {
-      current_diag_i_max.b = i_abc.b;
+      current_diag_i_max.a = motor_monitor.ia;
     }
 
 
-    if (i_abc.c < current_diag_i_min.c)
+    if (motor_monitor.ib < current_diag_i_min.b)
     {
-      current_diag_i_min.c = i_abc.c;
+      current_diag_i_min.b = motor_monitor.ib;
     }
 
-    if (i_abc.c > current_diag_i_max.c)
+    if (motor_monitor.ib > current_diag_i_max.b)
     {
-      current_diag_i_max.c = i_abc.c;
+      current_diag_i_max.b = motor_monitor.ib;
+    }
+
+
+    if (motor_monitor.ic < current_diag_i_min.c)
+    {
+      current_diag_i_min.c = motor_monitor.ic;
+    }
+
+    if (motor_monitor.ic > current_diag_i_max.c)
+    {
+      current_diag_i_max.c = motor_monitor.ic;
     }
   }
 
-  /*
-   * 2. 마지막 측정값 monitor 저장
-   */
-  motor_monitor.ia = i_abc.a;
-  motor_monitor.ib = i_abc.b;
-  motor_monitor.ic = i_abc.c;
-
-  motor_monitor.id_meas = 0.0f;
-  motor_monitor.iq_meas = 0.0f;
-  motor_monitor.id_ref  = 0.0f;
-  motor_monitor.iq_ref  = 0.0f;
-
-  motor_monitor.theta_e = 0.0f;
 
   /*
-   * 이번 시험에서는 vd/vq monitor 필드를
-   * alpha/beta 출력용으로 임시 사용
+   * motorCurrentLoop()에서 0.8 A trip이 발생했다면
+   * 이미 MOE는 OFF 되어 있다.
    */
-  motor_monitor.vd_cmd = CURRENT_TEST_V_ALPHA;
-  motor_monitor.vq_cmd = CURRENT_TEST_V_BETA;
-
-  motor_monitor.duty_u = motor_duty.u;
-  motor_monitor.duty_v = motor_duty.v;
-  motor_monitor.duty_w = motor_duty.w;
-
-
-  /*
-   * 3. Software overcurrent
-   *
-   * 시간 종료보다 우선 검사한다.
-   * 600번째 sample에서 0.8 A가 넘더라도 PASS가 아니라 Fault.
-   */
-  if ((fabsf(i_abc.a) > CURRENT_TEST_OC_LIMIT_A) ||
-      (fabsf(i_abc.b) > CURRENT_TEST_OC_LIMIT_A) ||
-      (fabsf(i_abc.c) > CURRENT_TEST_OC_LIMIT_A))
+  if (motor_state == MOTOR_STATE_FAULT)
   {
-    /*
-     * [중요]
-     * 다른 작업보다 가장 먼저 MOE OFF
-     */
-    pwmDisableOutput();
-
     current_diag_active = false;
     current_diag_done = false;
-
-    motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
-    motor_state = MOTOR_STATE_FAULT;
 
     return;
   }
 
 
   /*
-   * [수정]
-   * 20 kHz × 30 ms = 600 samples
+   * [안전]
+   * 600 samples = 30 ms
    *
-   * 600번째 ADC sample에서 ISR이 직접 MOE를 끈다.
-   * main loop 실행 시점과 무관하다.
+   * main loop가 아니라 ADC ISR에서 직접 MOE OFF.
    */
   if (current_diag_sample_count >=
       CURRENT_LOOP_TEST_SAMPLE_COUNT)
@@ -596,17 +584,10 @@ static void motorNeutralPwmDiag(void)
 
     return;
   }
-
-
-  /*
-   * Fixed alpha duty는 motorCurrentDiagStart()에서
-   * 이미 CCR에 설정되어 있으므로 여기서는 다시
-   * pwmSetDuty()를 호출할 필요가 없다.
-   */
 }
 
 #endif
-/*
+
 static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 {
   motor_abc_f_t i_abc;
@@ -679,7 +660,7 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 
   pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
 }
-*/
+
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
 static void motorSpeedLoop(void)
 {

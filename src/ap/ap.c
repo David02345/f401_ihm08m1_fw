@@ -145,11 +145,21 @@ void apMain(void)
       int32_t duty_v_permille;
       int32_t duty_w_permille;
 
+      int32_t id_ref_ma;
+      int32_t id_meas_ma;
+      int32_t iq_ref_ma;
+      int32_t iq_meas_ma;
 
       /*
        * motorStop() 전에 마지막 monitor 값을 저장한다.
        */
       motorGetMonitor(&monitor);
+
+      id_ref_ma = (int32_t)(monitor.id_ref * 1000.0f);
+      id_meas_ma = (int32_t)(monitor.id_meas * 1000.0f);
+      iq_ref_ma = (int32_t)(monitor.iq_ref * 1000.0f);
+      iq_meas_ma = (int32_t)(monitor.iq_meas * 1000.0f);
+
       // [수정] 30 ms 전체 Min/Max snapshot
       motorCurrentDiagGetCurrentMinMax(&current_min,
                                        &current_max);
@@ -210,7 +220,7 @@ void apMain(void)
       uartPrintf(
           _DEF_UART1,
           "\r\n"
-          "===== CURRENT FIXED ALPHA TEST =====\r\n");
+          "===== CURRENT P-ONLY ZERO TEST =====\r\n");
 
       uartPrintf(
           _DEF_UART1,
@@ -279,6 +289,17 @@ void apMain(void)
           "Ic Min/Max  : %ld / %ld mA\r\n\r\n",
           (long)(current_min.c * 1000.0f),
           (long)(current_max.c * 1000.0f));
+      uartPrintf(
+          _DEF_UART1,
+          "Id          : %ld / %ld mA\r\n",
+          (long)id_ref_ma,
+          (long)id_meas_ma);
+
+      uartPrintf(
+          _DEF_UART1,
+          "Iq          : %ld / %ld mA\r\n\r\n",
+          (long)iq_ref_ma,
+          (long)iq_meas_ma);
       uartPrintf(
           _DEF_UART1,
           "Vdq         : %ld / %ld mV\r\n",
