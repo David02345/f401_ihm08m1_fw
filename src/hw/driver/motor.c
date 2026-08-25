@@ -680,21 +680,23 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 
   motor_monitor.theta_e   = theta_e;
 
+  /*
   v_dq.d = piController(&pi_id, id_ref, i_dq.d, CUR_DT);
   v_dq.q = piController(&pi_iq, iq_ref, i_dq.q, CUR_DT);
 
-  /*
-   * [TEST] P-only current tracking safety limit
-   */
-  if (v_dq.q > 0.04f)
-  {
-    v_dq.q = 0.04f;
-  }
-  else if (v_dq.q < -0.04f)
-  {
-    v_dq.q = -0.04f;
-  }
 
+  */
+  v_dq.d = 0.0f;
+  v_dq.q = 0.08f;    // +80 mV
+
+  if (v_dq.q > 0.08f)
+  {
+    v_dq.q = 0.08f;
+  }
+  else if (v_dq.q < -0.08f)
+  {
+    v_dq.q = -0.08f;
+  }
 #if _USE_FOC_SPWM
   focSetVoltageLimit(&v_dq, MOTOR_VLIMIT_SPWM);
 #elif _USE_FOC_SVPWM
