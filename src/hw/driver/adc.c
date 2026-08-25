@@ -191,9 +191,9 @@ void adcGetPhaseCurrent(motor_abc_f_t *curr)
     return;
   }
 
-  curr->a = ((float)adc_curr_raw.a - adc_curr_offset.a) * ADC_CURRENT_SCALE;
-  curr->b = ((float)adc_curr_raw.b - adc_curr_offset.b) * ADC_CURRENT_SCALE;
-  curr->c = ((float)adc_curr_raw.c - adc_curr_offset.c) * ADC_CURRENT_SCALE;
+  curr->a = (adc_curr_offset.a - (float)adc_curr_raw.a) * ADC_CURRENT_SCALE;
+  curr->b = (adc_curr_offset.b - (float)adc_curr_raw.b) * ADC_CURRENT_SCALE;
+  curr->c = (adc_curr_offset.c - (float)adc_curr_raw.c) * ADC_CURRENT_SCALE;
 }
 
 bool adcUpdateRegular(void)
