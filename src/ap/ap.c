@@ -70,7 +70,7 @@ void apMain(void)
 
   if (motorGetState() == MOTOR_STATE_CURRENT_LOOP)
   {
-    motorSetCurrentReference(0.0f, 0.0f);
+    motorSetCurrentReference(0.0f, 0.1f);
 
 #if !_USE_HALL_TEST_ONLY
 
@@ -150,6 +150,12 @@ void apMain(void)
       int32_t iq_ref_ma;
       int32_t iq_meas_ma;
 
+      float id_avg;
+      float iq_avg;
+
+      int32_t id_avg_ma;
+      int32_t iq_avg_ma;
+
       /*
        * motorStop() 전에 마지막 monitor 값을 저장한다.
        */
@@ -161,51 +167,33 @@ void apMain(void)
       iq_meas_ma = (int32_t)(monitor.iq_meas * 1000.0f);
 
       // [수정] 30 ms 전체 Min/Max snapshot
-      motorCurrentDiagGetCurrentMinMax(&current_min,
-                                       &current_max);
+      motorCurrentDiagGetCurrentMinMax(&current_min, &current_max);
+
+      motorCurrentDiagGetDQAverage(&id_avg, &iq_avg);
+
+      id_avg_ma = (int32_t)(id_avg * 1000.0f);
+      iq_avg_ma = (int32_t)(iq_avg * 1000.0f);
       // [수정]
       // 실제 ISR 진단 sample 수 기준으로 계산
-      current_test_adc_samples =
-          motorCurrentDiagGetSampleCount();
+      current_test_adc_samples = motorCurrentDiagGetSampleCount();
 
-      current_test_elapsed_ms =
-          (current_test_adc_samples *
-           CURRENT_LOOP_PERIOD_US) / 1000U;
+      current_test_elapsed_ms = (current_test_adc_samples * CURRENT_LOOP_PERIOD_US) / 1000U;
 
-      current_test_adc_hz =
-          1000000U / CURRENT_LOOP_PERIOD_US;
+      current_test_adc_hz = 1000000U / CURRENT_LOOP_PERIOD_US;
 
 
-      ia_ma =
-          (int32_t)(monitor.ia * 1000.0f);
+      ia_ma = (int32_t)(monitor.ia * 1000.0f);
+      ib_ma = (int32_t)(monitor.ib * 1000.0f);
+      ic_ma = (int32_t)(monitor.ic * 1000.0f);
 
-      ib_ma =
-          (int32_t)(monitor.ib * 1000.0f);
+      current_sum_ma = (int32_t)((monitor.ia + monitor.ib + monitor.ic) * 1000.0f);
 
-      ic_ma =
-          (int32_t)(monitor.ic * 1000.0f);
+      vd_mv = (int32_t)(monitor.vd_cmd * 1000.0f);
+      vq_mv = (int32_t)(monitor.vq_cmd * 1000.0f);
 
-      current_sum_ma =
-          (int32_t)((monitor.ia +
-                     monitor.ib +
-                     monitor.ic) * 1000.0f);
-
-
-      vd_mv =
-          (int32_t)(monitor.vd_cmd * 1000.0f);
-
-      vq_mv =
-          (int32_t)(monitor.vq_cmd * 1000.0f);
-
-
-      duty_u_permille =
-          (int32_t)(monitor.duty_u * 1000.0f);
-
-      duty_v_permille =
-          (int32_t)(monitor.duty_v * 1000.0f);
-
-      duty_w_permille =
-          (int32_t)(monitor.duty_w * 1000.0f);
+      duty_u_permille = (int32_t)(monitor.duty_u * 1000.0f);
+      duty_v_permille = (int32_t)(monitor.duty_v * 1000.0f);
+      duty_w_permille = (int32_t)(monitor.duty_w * 1000.0f);
 
 
       motorSetCurrentReference(0.0f, 0.0f);
@@ -213,9 +201,7 @@ void apMain(void)
 
       current_test_stopped = true;
 
-      prev_adc_count =
-          adcGetCurrentUpdateCount();
-
+      prev_adc_count = adcGetCurrentUpdateCount();
 
       uartPrintf(
           _DEF_UART1,
@@ -300,6 +286,17 @@ void apMain(void)
           "Iq          : %ld / %ld mA\r\n\r\n",
           (long)iq_ref_ma,
           (long)iq_meas_ma);
+      // [추가] 30 ms / 600 samples 전체 평균
+      uartPrintf(
+          _DEF_UART1,
+          "Id Average  : %ld mA\r\n",
+          (long)id_avg_ma);
+
+      uartPrintf(
+          _DEF_UART1,
+          "Iq Average  : %ld mA\r\n\r\n",
+          (long)iq_avg_ma);
+
       uartPrintf(
           _DEF_UART1,
           "Vdq         : %ld / %ld mV\r\n",

@@ -29,7 +29,7 @@
 /** @defgroup PID Gains for Current, Speed, Position Control
   * @{
   */
-#define CUR_KP                            0.01f  //0.2f
+#define CUR_KP                            0.2f  //0.2f
 #define CUR_KI                            0.0f   //50.0f
 #define CUR_KD                            0.0f
 #define SPD_KP                            0.05f

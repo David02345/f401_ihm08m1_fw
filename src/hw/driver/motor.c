@@ -22,6 +22,8 @@ static volatile bool current_diag_active = false;
 static volatile bool current_diag_done = false;
 static volatile motor_abc_f_t current_diag_i_min;
 static volatile motor_abc_f_t current_diag_i_max;
+static volatile float current_diag_id_sum = 0.0f;
+static volatile float current_diag_iq_sum = 0.0f;
 #endif
 
 
@@ -266,6 +268,9 @@ void motorCurrentDiagStart(void)
   current_diag_sample_count = 0U;
   current_diag_done = false;
 
+  current_diag_id_sum = 0.0f;
+  current_diag_iq_sum = 0.0f;
+
   current_diag_i_min.a = 0.0f;
   current_diag_i_min.b = 0.0f;
   current_diag_i_min.c = 0.0f;
@@ -301,8 +306,38 @@ uint32_t motorCurrentDiagGetSampleCount(void)
   return current_diag_sample_count;
 }
 
-void motorCurrentDiagGetCurrentMinMax(motor_abc_f_t *i_min,
-                                      motor_abc_f_t *i_max)
+void motorCurrentDiagGetDQAverage(float *id_avg, float *iq_avg)
+{
+  uint32_t sample_count;
+
+  sample_count = current_diag_sample_count;
+
+  if (id_avg != NULL)
+  {
+    if (sample_count > 0U)
+    {
+      *id_avg = current_diag_id_sum / (float)sample_count;
+    }
+    else
+    {
+      *id_avg = 0.0f;
+    }
+  }
+
+  if (iq_avg != NULL)
+  {
+    if (sample_count > 0U)
+    {
+      *iq_avg = current_diag_iq_sum / (float)sample_count;
+    }
+    else
+    {
+      *iq_avg = 0.0f;
+    }
+  }
+}
+
+void motorCurrentDiagGetCurrentMinMax(motor_abc_f_t *i_min, motor_abc_f_t *i_max)
 {
   if (i_min != NULL)
   {
@@ -329,8 +364,7 @@ void motorStop(void)
   adcInjectedStop();
   pwmStop();
 
-#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
-    (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
 
   // [수정]
   current_diag_active = false;
@@ -501,9 +535,27 @@ static void motorNeutralPwmDiag(void)
 
 
   /*
-   * 이번 ISR sample 포함
+   * motorCurrentLoop()에서 OC Fault가 발생했다면
+   * dq값을 평균에 포함하지 않고 바로 종료
    */
+  if (motor_state == MOTOR_STATE_FAULT)
+  {
+    current_diag_active = false;
+    current_diag_done = false;
+
+    return;
+  }
+
+
   current_diag_sample_count++;
+
+
+  /*
+   * [추가]
+   * 이번 ADC sample에서 계산된 Id/Iq 누적
+   */
+  current_diag_id_sum += motor_monitor.id_meas;
+  current_diag_iq_sum += motor_monitor.iq_meas;
 
 
   /*
@@ -559,14 +611,6 @@ static void motorNeutralPwmDiag(void)
    * motorCurrentLoop()에서 0.8 A trip이 발생했다면
    * 이미 MOE는 OFF 되어 있다.
    */
-  if (motor_state == MOTOR_STATE_FAULT)
-  {
-    current_diag_active = false;
-    current_diag_done = false;
-
-    return;
-  }
-
 
   /*
    * [안전]
@@ -599,6 +643,10 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 
   adcGetPhaseCurrent(&i_abc);
 
+  motor_monitor.ia = i_abc.a;
+  motor_monitor.ib = i_abc.b;
+  motor_monitor.ic = i_abc.c;
+
   max_phase_current = fabsf(i_abc.a);
 
   if (fabsf(i_abc.b) > max_phase_current)
@@ -620,9 +668,7 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
     return;
   }
 
-  motor_monitor.ia = i_abc.a;
-  motor_monitor.ib = i_abc.b;
-  motor_monitor.ic = i_abc.c;
+
 
   focClarke(i_abc.a, i_abc.b, i_abc.c, &i_ab);
   focPark(i_ab.alpha, i_ab.beta, theta_e, &i_dq);

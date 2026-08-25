@@ -44,7 +44,7 @@ bool motorGetHallCalibrationEvent(int8_t *sector, int8_t *direction, float *thet
 void motorCurrentDiagStart(void);
 bool motorCurrentDiagIsDone(void);
 uint32_t motorCurrentDiagGetSampleCount(void);
-void motorCurrentDiagGetCurrentMinMax(motor_abc_f_t *i_min,
-                                      motor_abc_f_t *i_max);
+void motorCurrentDiagGetDQAverage(float *id_avg, float *iq_avg);
+void motorCurrentDiagGetCurrentMinMax(motor_abc_f_t *i_min, motor_abc_f_t *i_max);
 #endif
 #endif /* SRC_COMMON_HW_INCLUDE_MOTOR_H_ */
