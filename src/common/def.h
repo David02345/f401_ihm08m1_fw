@@ -29,8 +29,8 @@
 /** @defgroup PID Gains for Current, Speed, Position Control
   * @{
   */
-#define CUR_KP                            0.3f  //0.2f
-#define CUR_KI                            5.0f   //50.0f
+#define CUR_KP                            0.38f  //0.2f
+#define CUR_KI                            148.0f   //50.0f
 #define CUR_KD                            0.0f
 #define SPD_KP                            0.05f
 #define SPD_KI                            1.0f
@@ -166,8 +166,7 @@
   */
 #define CURRENT_NEUTRAL_DIAG_ENABLE       1U
 
-//#define CURRENT_LOOP_TEST_TIME_MS         60U
-#define CURRENT_LOOP_TEST_TIME_MS         1U // [L TEST]
+#define CURRENT_LOOP_TEST_TIME_MS         5U
 #define CURRENT_LOOP_PERIOD_US            50U
 
 // [수정] 30 ms × 20 kHz = 600 samples
@@ -181,13 +180,11 @@
 #define CURRENT_TEST_V_BETA               0.04f
 
 #define CURRENT_NEUTRAL_DUTY              0.5f
-
-// L identification voltage
-#define CURRENT_L_TEST_VD                 0.00f
-#define CURRENT_L_TEST_VQ                 0.20f
-
 // 3 ms × 20 kHz = 60 samples
 #define CURRENT_L_TEST_SAMPLE_COUNT       20U
+
+// [추가] 마지막 100 samples = 마지막 5 ms 평균
+#define CURRENT_DIAG_TAIL_SAMPLES         20U
 /**
   * @}
   */

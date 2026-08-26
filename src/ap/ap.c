@@ -70,7 +70,7 @@ void apMain(void)
 
   if (motorGetState() == MOTOR_STATE_CURRENT_LOOP)
   {
-    motorSetCurrentReference(0.0f, 0.0f); // 여기서 설정
+    motorSetCurrentReference(0.0f, 0.2f); // 여기서 설정
 
 #if !_USE_HALL_TEST_ONLY
 
@@ -167,10 +167,11 @@ void apMain(void)
       int32_t vd_tail_avg_mv;
       int32_t vq_tail_avg_mv;
 
-      uint32_t l_sample_count;
-      float l_id;
-      float l_iq;
-      float l_theta;
+      uint32_t l_sample_count = 0U;
+      float l_id = 0.0f;
+      float l_iq = 0.0f;
+      float l_vq = 0.0f;
+      float l_theta = 0.0f;
       /*
        * motorStop() 전에 마지막 monitor 값을 저장한다.
        */
@@ -368,17 +369,17 @@ void apMain(void)
        * [수정]
        * 정상 종료 로그의 마지막 구분선을 복구한다.
        */
-      uartPrintf(
-          _DEF_UART1,
-          "================================\r\n\r\n");
-
-      l_sample_count = motorCurrentLTestGetCount();
+      uartPrintf(_DEF_UART1,
+                 "\r\n===== CURRENT PI STEP RESPONSE =====\r\n");
 
       uartPrintf(_DEF_UART1,
-                 "\r\n===== Lq STEP RESPONSE =====\r\n");
+                 "Iq Ref  : 200 mA\r\n");
 
       uartPrintf(_DEF_UART1,
-                 "Vq Step : 80 mV\r\n");
+                 "Kp      : 0.38\r\n");
+
+      uartPrintf(_DEF_UART1,
+                 "Ki      : 148.0\r\n");
 
       uartPrintf(_DEF_UART1,
                  "Ts      : 50 us\r\n");
@@ -388,24 +389,20 @@ void apMain(void)
                  (unsigned long)l_sample_count);
 
       uartPrintf(_DEF_UART1,
-                 "N,Time_us,Id_mA,Iq_mA,Theta_mrad\r\n");
+                 "N,Time_us,Id_mA,Iq_mA,Vq_mV,Theta_mrad\r\n");
 
 
-      for (uint32_t i = 0U;
-           i < l_sample_count;
-           i++)
+      for (uint32_t i = 0U; i < l_sample_count; i++)
       {
-        if (motorCurrentLTestGetSample(i,
-                                       &l_id,
-                                       &l_iq,
-                                       &l_theta) == true)
+        if (motorCurrentLTestGetSample(i, &l_id, &l_iq, &l_vq, &l_theta) == true)
         {
           uartPrintf(_DEF_UART1,
-                     "%lu,%lu,%ld,%ld,%ld\r\n",
+                     "%lu,%lu,%ld,%ld,%ld,%ld\r\n",
                      (unsigned long)i,
                      (unsigned long)(i * CURRENT_LOOP_PERIOD_US),
                      (long)(l_id * 1000.0f),
                      (long)(l_iq * 1000.0f),
+                     (long)(l_vq * 1000.0f),
                      (long)(l_theta * 1000.0f));
         }
       }

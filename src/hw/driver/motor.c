@@ -25,8 +25,7 @@ static volatile motor_abc_f_t current_diag_i_max;
 static volatile float current_diag_id_sum = 0.0f;
 static volatile float current_diag_iq_sum = 0.0f;
 
-// [추가] 마지막 100 samples = 마지막 5 ms 평균
-#define CURRENT_DIAG_TAIL_SAMPLES       100U
+
 
 static volatile uint32_t current_diag_tail_count = 0U;
 
@@ -40,6 +39,7 @@ static volatile float current_diag_tail_vq_sum = 0.0f;
 static volatile float current_l_test_id[CURRENT_L_TEST_SAMPLE_COUNT];
 static volatile float current_l_test_iq[CURRENT_L_TEST_SAMPLE_COUNT];
 static volatile float current_l_test_theta[CURRENT_L_TEST_SAMPLE_COUNT];
+static volatile float current_l_test_vq[CURRENT_L_TEST_SAMPLE_COUNT];
 
 static volatile uint32_t current_l_test_count = 0U;
 
@@ -317,6 +317,7 @@ void motorCurrentDiagStart(void)
     current_l_test_id[i] = 0.0f;
     current_l_test_iq[i] = 0.0f;
     current_l_test_theta[i] = 0.0f;
+    current_l_test_vq[i] = 0.0f;
   }
 
   /*
@@ -460,7 +461,7 @@ uint32_t motorCurrentLTestGetCount(void)
 }
 
 
-bool motorCurrentLTestGetSample(uint32_t index, float *id, float *iq, float *theta_e)
+bool motorCurrentLTestGetSample(uint32_t index, float *id, float *iq, float *vq, float *theta_e)
 {
   if (index >= current_l_test_count)
   {
@@ -475,6 +476,11 @@ bool motorCurrentLTestGetSample(uint32_t index, float *id, float *iq, float *the
   if (iq != NULL)
   {
     *iq = current_l_test_iq[index];
+  }
+
+  if (vq != NULL)
+  {
+    *vq = current_l_test_vq[index];
   }
 
   if (theta_e != NULL)
@@ -672,6 +678,7 @@ static void motorNeutralPwmDiag(void)
   {
     current_l_test_id[current_l_test_count] = motor_monitor.id_meas;
     current_l_test_iq[current_l_test_count] = motor_monitor.iq_meas;
+    current_l_test_vq[current_l_test_count] = motor_monitor.vq_cmd;
     current_l_test_theta[current_l_test_count] = motor_monitor.theta_e;
     current_l_test_count++;
   }
@@ -813,21 +820,10 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
   motor_monitor.theta_e   = theta_e;
 
 
-  //v_dq.d = piController(&pi_id, id_ref, i_dq.d, CUR_DT);
-  //v_dq.q = piController(&pi_iq, iq_ref, i_dq.q, CUR_DT);
-  v_dq.d = CURRENT_L_TEST_VD;
-  v_dq.q = CURRENT_L_TEST_VQ;
+  v_dq.d = piController(&pi_id, id_ref, i_dq.d, CUR_DT);
+  v_dq.q = piController(&pi_iq, iq_ref, i_dq.q, CUR_DT);
 
-  /*
-  if (v_dq.q > 0.08f)
-  {
-    v_dq.q = 0.08f;
-  }
-  else if (v_dq.q < -0.08f)
-  {
-    v_dq.q = -0.08f;
-  }
-*/
+
 #if _USE_FOC_SPWM
   focSetVoltageLimit(&v_dq, MOTOR_VLIMIT_SPWM);
 #elif _USE_FOC_SVPWM
