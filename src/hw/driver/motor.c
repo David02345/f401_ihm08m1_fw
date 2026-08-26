@@ -24,6 +24,25 @@ static volatile motor_abc_f_t current_diag_i_min;
 static volatile motor_abc_f_t current_diag_i_max;
 static volatile float current_diag_id_sum = 0.0f;
 static volatile float current_diag_iq_sum = 0.0f;
+
+// [추가] 마지막 100 samples = 마지막 5 ms 평균
+#define CURRENT_DIAG_TAIL_SAMPLES       100U
+
+static volatile uint32_t current_diag_tail_count = 0U;
+
+static volatile float current_diag_tail_id_sum = 0.0f;
+static volatile float current_diag_tail_iq_sum = 0.0f;
+
+static volatile float current_diag_tail_vd_sum = 0.0f;
+static volatile float current_diag_tail_vq_sum = 0.0f;
+
+// [L TEST] 첫 3 ms current response 저장
+static volatile float current_l_test_id[CURRENT_L_TEST_SAMPLE_COUNT];
+static volatile float current_l_test_iq[CURRENT_L_TEST_SAMPLE_COUNT];
+static volatile float current_l_test_theta[CURRENT_L_TEST_SAMPLE_COUNT];
+
+static volatile uint32_t current_l_test_count = 0U;
+
 #endif
 
 
@@ -253,9 +272,7 @@ void motorCurrentDiagStart(void)
   motor_duty.v = 0.5f;
   motor_duty.w = 0.5f;
 
-  pwmSetDuty(motor_duty.u,
-             motor_duty.v,
-             motor_duty.w);
+  pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
 
 
   primask = __get_PRIMASK();
@@ -271,6 +288,15 @@ void motorCurrentDiagStart(void)
   current_diag_id_sum = 0.0f;
   current_diag_iq_sum = 0.0f;
 
+  // [추가] 마지막 100 samples 평균용 초기화
+  current_diag_tail_count = 0U;
+
+  current_diag_tail_id_sum = 0.0f;
+  current_diag_tail_iq_sum = 0.0f;
+
+  current_diag_tail_vd_sum = 0.0f;
+  current_diag_tail_vq_sum = 0.0f;
+
   current_diag_i_min.a = 0.0f;
   current_diag_i_min.b = 0.0f;
   current_diag_i_min.c = 0.0f;
@@ -281,6 +307,17 @@ void motorCurrentDiagStart(void)
 
   current_diag_active = true;
 
+  // [L TEST]
+  current_l_test_count = 0U;
+
+  for (uint32_t i = 0U;
+       i < CURRENT_L_TEST_SAMPLE_COUNT;
+       i++)
+  {
+    current_l_test_id[i] = 0.0f;
+    current_l_test_iq[i] = 0.0f;
+    current_l_test_theta[i] = 0.0f;
+  }
 
   /*
    * 실제 출력 시작
@@ -337,6 +374,69 @@ void motorCurrentDiagGetDQAverage(float *id_avg, float *iq_avg)
   }
 }
 
+void motorCurrentDiagGetTailAverage(float *id_avg, float *iq_avg, float *vd_avg, float *vq_avg)
+{
+  uint32_t count;
+
+  count = current_diag_tail_count;
+
+
+  if (id_avg != NULL)
+  {
+    if (count > 0U)
+    {
+      *id_avg =
+          current_diag_tail_id_sum / (float)count;
+    }
+    else
+    {
+      *id_avg = 0.0f;
+    }
+  }
+
+
+  if (iq_avg != NULL)
+  {
+    if (count > 0U)
+    {
+      *iq_avg =
+          current_diag_tail_iq_sum / (float)count;
+    }
+    else
+    {
+      *iq_avg = 0.0f;
+    }
+  }
+
+
+  if (vd_avg != NULL)
+  {
+    if (count > 0U)
+    {
+      *vd_avg =
+          current_diag_tail_vd_sum / (float)count;
+    }
+    else
+    {
+      *vd_avg = 0.0f;
+    }
+  }
+
+
+  if (vq_avg != NULL)
+  {
+    if (count > 0U)
+    {
+      *vq_avg =
+          current_diag_tail_vq_sum / (float)count;
+    }
+    else
+    {
+      *vq_avg = 0.0f;
+    }
+  }
+}
+
 void motorCurrentDiagGetCurrentMinMax(motor_abc_f_t *i_min, motor_abc_f_t *i_max)
 {
   if (i_min != NULL)
@@ -352,6 +452,37 @@ void motorCurrentDiagGetCurrentMinMax(motor_abc_f_t *i_min, motor_abc_f_t *i_max
     i_max->b = current_diag_i_max.b;
     i_max->c = current_diag_i_max.c;
   }
+}
+
+uint32_t motorCurrentLTestGetCount(void)
+{
+  return current_l_test_count;
+}
+
+
+bool motorCurrentLTestGetSample(uint32_t index, float *id, float *iq, float *theta_e)
+{
+  if (index >= current_l_test_count)
+  {
+    return false;
+  }
+
+  if (id != NULL)
+  {
+    *id = current_l_test_id[index];
+  }
+
+  if (iq != NULL)
+  {
+    *iq = current_l_test_iq[index];
+  }
+
+  if (theta_e != NULL)
+  {
+    *theta_e = current_l_test_theta[index];
+  }
+
+  return true;
 }
 #endif
 
@@ -520,24 +651,9 @@ static void motorNeutralPwmDiag(void)
 #endif
 
 
-  /*
-   * [수정]
-   * 실제 0 A P-only Current Loop 실행
-   *
-   * current_id_ref = 0
-   * current_iq_ref = 0
-   *
-   * 는 ap.c에서 설정되어 있음.
-   */
-  motorCurrentLoop(current_id_ref,
-                   current_iq_ref,
-                   theta_e);
+  motorCurrentLoop(current_id_ref, current_iq_ref, theta_e);
 
 
-  /*
-   * motorCurrentLoop()에서 OC Fault가 발생했다면
-   * dq값을 평균에 포함하지 않고 바로 종료
-   */
   if (motor_state == MOTOR_STATE_FAULT)
   {
     current_diag_active = false;
@@ -546,21 +662,37 @@ static void motorNeutralPwmDiag(void)
     return;
   }
 
+  /*
+   * [L TEST]
+   * motorCurrentLoop()에서 이번 ISR의 Id/Iq 계산 완료.
+   *
+   * 첫 sample은 voltage step 직전/직후의 기준점 역할을 한다.
+   */
+  if (current_l_test_count < CURRENT_L_TEST_SAMPLE_COUNT)
+  {
+    current_l_test_id[current_l_test_count] = motor_monitor.id_meas;
+    current_l_test_iq[current_l_test_count] = motor_monitor.iq_meas;
+    current_l_test_theta[current_l_test_count] = motor_monitor.theta_e;
+    current_l_test_count++;
+  }
 
   current_diag_sample_count++;
 
-
-  /*
-   * [추가]
-   * 이번 ADC sample에서 계산된 Id/Iq 누적
-   */
   current_diag_id_sum += motor_monitor.id_meas;
   current_diag_iq_sum += motor_monitor.iq_meas;
 
+  if ((current_diag_sample_count + CURRENT_DIAG_TAIL_SAMPLES) >
+      CURRENT_LOOP_TEST_SAMPLE_COUNT)
+  {
+    current_diag_tail_count++;
 
-  /*
-   * 30 ms 동안 Ia/Ib/Ic Min/Max 기록
-   */
+    current_diag_tail_id_sum += motor_monitor.id_meas;
+    current_diag_tail_iq_sum += motor_monitor.iq_meas;
+
+    current_diag_tail_vd_sum += motor_monitor.vd_cmd;
+    current_diag_tail_vq_sum += motor_monitor.vq_cmd;
+  }
+
   if (current_diag_sample_count == 1U)
   {
     current_diag_i_min.a = motor_monitor.ia;
@@ -680,14 +812,11 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 
   motor_monitor.theta_e   = theta_e;
 
-  /*
-  v_dq.d = piController(&pi_id, id_ref, i_dq.d, CUR_DT);
-  v_dq.q = piController(&pi_iq, iq_ref, i_dq.q, CUR_DT);
 
-
-  */
-  v_dq.d = 0.0f;
-  v_dq.q = 0.08f;    // +80 mV
+  //v_dq.d = piController(&pi_id, id_ref, i_dq.d, CUR_DT);
+  //v_dq.q = piController(&pi_iq, iq_ref, i_dq.q, CUR_DT);
+  v_dq.d = CURRENT_L_TEST_VD;
+  v_dq.q = CURRENT_L_TEST_VQ;
 
   if (v_dq.q > 0.08f)
   {
@@ -697,6 +826,7 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
   {
     v_dq.q = -0.08f;
   }
+
 #if _USE_FOC_SPWM
   focSetVoltageLimit(&v_dq, MOTOR_VLIMIT_SPWM);
 #elif _USE_FOC_SVPWM

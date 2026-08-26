@@ -156,6 +156,21 @@ void apMain(void)
       int32_t id_avg_ma;
       int32_t iq_avg_ma;
 
+      float id_tail_avg;
+      float iq_tail_avg;
+      float vd_tail_avg;
+      float vq_tail_avg;
+
+      int32_t id_tail_avg_ma;
+      int32_t iq_tail_avg_ma;
+
+      int32_t vd_tail_avg_mv;
+      int32_t vq_tail_avg_mv;
+
+      uint32_t l_sample_count;
+      float l_id;
+      float l_iq;
+      float l_theta;
       /*
        * motorStop() 전에 마지막 monitor 값을 저장한다.
        */
@@ -173,6 +188,14 @@ void apMain(void)
 
       id_avg_ma = (int32_t)(id_avg * 1000.0f);
       iq_avg_ma = (int32_t)(iq_avg * 1000.0f);
+
+      motorCurrentDiagGetTailAverage(&id_tail_avg, &iq_tail_avg, &vd_tail_avg, &vq_tail_avg);
+
+      id_tail_avg_ma = (int32_t)(id_tail_avg * 1000.0f);
+      iq_tail_avg_ma = (int32_t)(iq_tail_avg * 1000.0f);
+      vd_tail_avg_mv = (int32_t)(vd_tail_avg * 1000.0f);
+      vq_tail_avg_mv = (int32_t)(vq_tail_avg * 1000.0f);
+
       // [수정]
       // 실제 ISR 진단 sample 수 기준으로 계산
       current_test_adc_samples = motorCurrentDiagGetSampleCount();
@@ -206,7 +229,7 @@ void apMain(void)
       uartPrintf(
           _DEF_UART1,
           "\r\n"
-          "===== FIXED +VQ 40mV TEST =====\r\n");
+          "===== FIXED +VQ 80mV TEST =====\r\n");
 
       uartPrintf(
           _DEF_UART1,
@@ -296,7 +319,25 @@ void apMain(void)
           _DEF_UART1,
           "Iq Average  : %ld mA\r\n\r\n",
           (long)iq_avg_ma);
+      uartPrintf(
+          _DEF_UART1,
+          "Id Last100  : %ld mA\r\n",
+          (long)id_tail_avg_ma);
 
+      uartPrintf(
+          _DEF_UART1,
+          "Iq Last100  : %ld mA\r\n",
+          (long)iq_tail_avg_ma);
+
+      uartPrintf(
+          _DEF_UART1,
+          "Vd Last100  : %ld mV\r\n",
+          (long)vd_tail_avg_mv);
+
+      uartPrintf(
+          _DEF_UART1,
+          "Vq Last100  : %ld mV\r\n\r\n",
+          (long)vq_tail_avg_mv);
       uartPrintf(
           _DEF_UART1,
           "Vdq         : %ld / %ld mV\r\n",
@@ -330,6 +371,47 @@ void apMain(void)
       uartPrintf(
           _DEF_UART1,
           "================================\r\n\r\n");
+
+      l_sample_count = motorCurrentLTestGetCount();
+
+      uartPrintf(_DEF_UART1,
+                 "\r\n===== Lq STEP RESPONSE =====\r\n");
+
+      uartPrintf(_DEF_UART1,
+                 "Vq Step : 80 mV\r\n");
+
+      uartPrintf(_DEF_UART1,
+                 "Ts      : 50 us\r\n");
+
+      uartPrintf(_DEF_UART1,
+                 "Samples : %lu\r\n\r\n",
+                 (unsigned long)l_sample_count);
+
+      uartPrintf(_DEF_UART1,
+                 "N,Time_us,Id_mA,Iq_mA,Theta_mrad\r\n");
+
+
+      for (uint32_t i = 0U;
+           i < l_sample_count;
+           i++)
+      {
+        if (motorCurrentLTestGetSample(i,
+                                       &l_id,
+                                       &l_iq,
+                                       &l_theta) == true)
+        {
+          uartPrintf(_DEF_UART1,
+                     "%lu,%lu,%ld,%ld,%ld\r\n",
+                     (unsigned long)i,
+                     (unsigned long)(i * CURRENT_LOOP_PERIOD_US),
+                     (long)(l_id * 1000.0f),
+                     (long)(l_iq * 1000.0f),
+                     (long)(l_theta * 1000.0f));
+        }
+      }
+
+      uartPrintf(_DEF_UART1,
+                 "============================\r\n");
     }
 
 
