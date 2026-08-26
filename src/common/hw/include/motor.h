@@ -47,7 +47,12 @@ uint32_t motorCurrentDiagGetSampleCount(void);
 void motorCurrentDiagGetDQAverage(float *id_avg, float *iq_avg);
 void motorCurrentDiagGetCurrentMinMax(motor_abc_f_t *i_min, motor_abc_f_t *i_max);
 void motorCurrentDiagGetTailAverage(float *id_avg, float *iq_avg, float *vd_avg, float *vq_avg);
+
 uint32_t motorCurrentLTestGetCount(void);
 bool motorCurrentLTestGetSample(uint32_t index, float *id, float *iq, float *vq, float *theta_e);
+
+uint32_t motorCurrentNoiseGetCount(void);
+bool motorCurrentNoiseGetSample(uint32_t index, motor_abc_u16_t *raw, motor_abc_f_t *current);
+
 #endif
 #endif /* SRC_COMMON_HW_INCLUDE_MOTOR_H_ */

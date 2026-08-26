@@ -43,6 +43,10 @@ static volatile float current_l_test_vq[CURRENT_L_TEST_SAMPLE_COUNT];
 
 static volatile uint32_t current_l_test_count = 0U;
 
+static volatile motor_abc_u16_t current_noise_raw[CURRENT_NOISE_TEST_SAMPLE_COUNT];
+static volatile motor_abc_f_t current_noise_amp[CURRENT_NOISE_TEST_SAMPLE_COUNT];
+static volatile uint32_t current_noise_count = 0U;
+
 #endif
 
 
@@ -320,6 +324,25 @@ void motorCurrentDiagStart(void)
     current_l_test_vq[i] = 0.0f;
   }
 
+#if CURRENT_ADC_NOISE_TEST_ENABLE
+
+  current_noise_count = 0U;
+
+  for (uint32_t i = 0U;
+       i < CURRENT_NOISE_TEST_SAMPLE_COUNT;
+       i++)
+  {
+    current_noise_raw[i].a = 0U;
+    current_noise_raw[i].b = 0U;
+    current_noise_raw[i].c = 0U;
+
+    current_noise_amp[i].a = 0.0f;
+    current_noise_amp[i].b = 0.0f;
+    current_noise_amp[i].c = 0.0f;
+  }
+
+#endif
+
   /*
    * 실제 출력 시작
    */
@@ -490,8 +513,57 @@ bool motorCurrentLTestGetSample(uint32_t index, float *id, float *iq, float *vq,
 
   return true;
 }
-#endif
 
+uint32_t motorCurrentNoiseGetCount(void)
+{
+#if CURRENT_ADC_NOISE_TEST_ENABLE
+
+  return current_noise_count;
+
+#else
+
+  return 0U;
+
+#endif
+}
+
+bool motorCurrentNoiseGetSample(uint32_t index, motor_abc_u16_t *raw, motor_abc_f_t *current)
+{
+#if CURRENT_ADC_NOISE_TEST_ENABLE
+
+  if (index >= current_noise_count)
+  {
+    return false;
+  }
+
+  if (raw != NULL)
+  {
+    raw->a = current_noise_raw[index].a;
+    raw->b = current_noise_raw[index].b;
+    raw->c = current_noise_raw[index].c;
+  }
+
+  if (current != NULL)
+  {
+    current->a = current_noise_amp[index].a;
+    current->b = current_noise_amp[index].b;
+    current->c = current_noise_amp[index].c;
+  }
+
+  return true;
+
+#else
+
+  (void)index;
+  (void)raw;
+  (void)current;
+
+  return false;
+
+#endif
+}
+
+#endif
 
 
 
@@ -656,9 +728,77 @@ static void motorNeutralPwmDiag(void)
 
 #endif
 
+#if CURRENT_ADC_NOISE_TEST_ENABLE
+
+  motor_abc_f_t i_abc;
+  motor_abc_u16_t raw;
+
+  /*
+   * [ADC NOISE TEST]
+   *
+   * PI / Clarke / Park / FOC를 사용하지 않는다.
+   * PWM은 motorCurrentDiagStart()에서 설정한
+   * U = V = W = 50% 상태를 그대로 유지한다.
+   */
+
+  adcGetPhaseCurrent(&i_abc);
+  adcGetCurrentRaw(&raw);
+
+  motor_monitor.ia = i_abc.a;
+  motor_monitor.ib = i_abc.b;
+  motor_monitor.ic = i_abc.c;
+
+  motor_monitor.id_ref = 0.0f;
+  motor_monitor.iq_ref = 0.0f;
+
+  motor_monitor.id_meas = 0.0f;
+  motor_monitor.iq_meas = 0.0f;
+
+  motor_monitor.vd_cmd = 0.0f;
+  motor_monitor.vq_cmd = 0.0f;
+
+  motor_monitor.duty_u = 0.5f;
+  motor_monitor.duty_v = 0.5f;
+  motor_monitor.duty_w = 0.5f;
+
+  float max_phase_current = fabsf(i_abc.a);
+
+  if (fabsf(i_abc.b) > max_phase_current)
+  {
+    max_phase_current = fabsf(i_abc.b);
+  }
+
+  if (fabsf(i_abc.c) > max_phase_current)
+  {
+    max_phase_current = fabsf(i_abc.c);
+  }
+
+  if (max_phase_current > CURRENT_TEST_OC_LIMIT_A)
+  {
+    pwmDisableOutput();
+
+    motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
+    motor_state = MOTOR_STATE_FAULT;
+
+    current_diag_active = false;
+    return;
+  }
+
+  if (current_noise_count <
+      CURRENT_NOISE_TEST_SAMPLE_COUNT)
+  {
+    current_noise_raw[current_noise_count] = raw;
+    current_noise_amp[current_noise_count] = i_abc;
+
+    current_noise_count++;
+  }
+
+
+#else
 
   motorCurrentLoop(current_id_ref, current_iq_ref, theta_e);
 
+#endif
 
   if (motor_state == MOTOR_STATE_FAULT)
   {
@@ -668,6 +808,7 @@ static void motorNeutralPwmDiag(void)
     return;
   }
 
+#if !CURRENT_ADC_NOISE_TEST_ENABLE
   /*
    * [L TEST]
    * motorCurrentLoop()에서 이번 ISR의 Id/Iq 계산 완료.
@@ -682,7 +823,7 @@ static void motorNeutralPwmDiag(void)
     current_l_test_theta[current_l_test_count] = motor_monitor.theta_e;
     current_l_test_count++;
   }
-
+#endif
   current_diag_sample_count++;
 
   current_diag_id_sum += motor_monitor.id_meas;

@@ -165,23 +165,23 @@
   * @{
   */
 #define CURRENT_NEUTRAL_DIAG_ENABLE       1U
+#define CURRENT_ADC_NOISE_TEST_ENABLE     1U
 
 #define CURRENT_LOOP_TEST_TIME_MS         5U
 #define CURRENT_LOOP_PERIOD_US            50U
 
-// [수정] 30 ms × 20 kHz = 600 samples
-#define CURRENT_LOOP_TEST_SAMPLE_COUNT    \
-        ((CURRENT_LOOP_TEST_TIME_MS * 1000U) / CURRENT_LOOP_PERIOD_US)
+#define CURRENT_LOOP_TEST_SAMPLE_COUNT    ((CURRENT_LOOP_TEST_TIME_MS * 1000U) / CURRENT_LOOP_PERIOD_US)
+#define CURRENT_NOISE_TEST_SAMPLE_COUNT   CURRENT_LOOP_TEST_SAMPLE_COUNT
+
 
 #define CURRENT_TEST_OC_LIMIT_A           0.8f
 
-// [수정] Fixed alpha test command
 #define CURRENT_TEST_V_ALPHA              0.00f
 #define CURRENT_TEST_V_BETA               0.04f
 
 #define CURRENT_NEUTRAL_DUTY              0.5f
-// 3 ms × 20 kHz = 60 samples
-#define CURRENT_L_TEST_SAMPLE_COUNT       20U
+
+#define CURRENT_L_TEST_SAMPLE_COUNT       CURRENT_LOOP_TEST_SAMPLE_COUNT
 
 // [추가] 마지막 100 samples = 마지막 5 ms 평균
 #define CURRENT_DIAG_TAIL_SAMPLES         20U
