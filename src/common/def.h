@@ -117,6 +117,8 @@
 #define GEAR_RATIO                        25
 #define GEAR_EFFICIENCY                   0.94
 #define MOTOR_POLE_PAIRS                  4
+#define MOTOR_PHASE_R                     0.0784f     // Ohm
+#define MOTOR_LQ                          0.00020f    // H
 /**
   * @}
   */
@@ -182,7 +184,7 @@
 
 // L identification voltage
 #define CURRENT_L_TEST_VD                 0.00f
-#define CURRENT_L_TEST_VQ                 0.30f
+#define CURRENT_L_TEST_VQ                 0.20f
 
 // 3 ms × 20 kHz = 60 samples
 #define CURRENT_L_TEST_SAMPLE_COUNT       20U

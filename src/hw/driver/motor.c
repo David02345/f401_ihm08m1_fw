@@ -818,6 +818,7 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
   v_dq.d = CURRENT_L_TEST_VD;
   v_dq.q = CURRENT_L_TEST_VQ;
 
+  /*
   if (v_dq.q > 0.08f)
   {
     v_dq.q = 0.08f;
@@ -826,7 +827,7 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
   {
     v_dq.q = -0.08f;
   }
-
+*/
 #if _USE_FOC_SPWM
   focSetVoltageLimit(&v_dq, MOTOR_VLIMIT_SPWM);
 #elif _USE_FOC_SVPWM
