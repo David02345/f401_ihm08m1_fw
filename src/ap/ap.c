@@ -70,7 +70,7 @@ void apMain(void)
 
   if (motorGetState() == MOTOR_STATE_CURRENT_LOOP)
   {
-    motorSetCurrentReference(0.0f, 0.2f); // 여기서 설정
+    motorSetCurrentReference(0.0f, 0.0f); // 여기서 설정
 
 #if !_USE_HALL_TEST_ONLY
 

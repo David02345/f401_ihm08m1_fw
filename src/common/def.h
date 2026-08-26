@@ -165,7 +165,7 @@
 #define CURRENT_NEUTRAL_DIAG_ENABLE       1U
 
 //#define CURRENT_LOOP_TEST_TIME_MS         60U
-#define CURRENT_LOOP_TEST_TIME_MS         3U // [L TEST]
+#define CURRENT_LOOP_TEST_TIME_MS         1U // [L TEST]
 #define CURRENT_LOOP_PERIOD_US            50U
 
 // [수정] 30 ms × 20 kHz = 600 samples
@@ -182,10 +182,10 @@
 
 // L identification voltage
 #define CURRENT_L_TEST_VD                 0.00f
-#define CURRENT_L_TEST_VQ                 0.08f
+#define CURRENT_L_TEST_VQ                 0.30f
 
 // 3 ms × 20 kHz = 60 samples
-#define CURRENT_L_TEST_SAMPLE_COUNT       60U
+#define CURRENT_L_TEST_SAMPLE_COUNT       20U
 /**
   * @}
   */
