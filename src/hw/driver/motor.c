@@ -346,7 +346,21 @@ void motorCurrentDiagStart(void)
   /*
    * 실제 출력 시작
    */
+#if CURRENT_ADC_PWM_OFF_TEST_ENABLE
+
+  /*
+   * ADC noise baseline test
+   *
+   * TIM1 / CH4 ADC trigger는 계속 동작
+   * MOSFET PWM output만 MOE OFF
+   */
+  pwmDisableOutput();
+
+#else
+
   pwmEnableOutput();
+
+#endif
 
 
   if (primask == 0U)

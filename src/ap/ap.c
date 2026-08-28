@@ -80,8 +80,6 @@ void apMain(void)
 
 #endif
 
-    motorCurrentDiagStart();; // 여기서 설정
-
 #if !_USE_HALL_TEST_ONLY
 
     current_test_started = true;
@@ -183,11 +181,13 @@ void apMain(void)
       float l_iq = 0.0f;
       float l_vq = 0.0f;
       float l_theta = 0.0f;
-#endif
 
+#elif
       uint32_t noise_count = 0U;
       motor_abc_u16_t noise_raw;
       motor_abc_f_t noise_current;
+
+#endif
       /*
        * motorStop() 전에 마지막 monitor 값을 저장한다.
        */
@@ -246,7 +246,7 @@ void apMain(void)
       uartPrintf(
           _DEF_UART1,
           "\r\n"
-          "===== CURRENT PI 200mA TEST =====\r\n");
+          "\r\n===== NEUTRAL PWM ADC NOISE TEST SUMMARY =====\r\n");
 
       uartPrintf(
           _DEF_UART1,
@@ -392,7 +392,7 @@ void apMain(void)
   uartPrintf(
       _DEF_UART1,
       "\r\n"
-      "===== NEUTRAL PWM ADC NOISE TEST =====\r\n");
+      "\r\n===== PWM OFF ADC NOISE TEST =====\r\n");
 
   uartPrintf(
       _DEF_UART1,
@@ -463,7 +463,7 @@ void apMain(void)
   l_sample_count = motorCurrentLTestGetCount();
 
         uartPrintf(_DEF_UART1,
-                   "\r\n===== CURRENT PI STEP RESPONSE =====\r\n");
+                   "\r\n===== NEUTRAL PWM ADC NOISE TEST =====\r\n");
 
         uartPrintf(_DEF_UART1,
                    "Iq Ref  : 200 mA\r\n");
