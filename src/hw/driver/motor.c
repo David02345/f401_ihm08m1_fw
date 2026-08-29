@@ -40,6 +40,7 @@ static volatile float current_l_test_id[CURRENT_L_TEST_SAMPLE_COUNT];
 static volatile float current_l_test_iq[CURRENT_L_TEST_SAMPLE_COUNT];
 static volatile float current_l_test_theta[CURRENT_L_TEST_SAMPLE_COUNT];
 static volatile float current_l_test_vq[CURRENT_L_TEST_SAMPLE_COUNT];
+static volatile float current_l_test_vd[CURRENT_L_TEST_SAMPLE_COUNT];
 
 static volatile uint32_t current_l_test_count = 0U;
 
@@ -282,6 +283,8 @@ void motorCurrentDiagStart(void)
   primask = __get_PRIMASK();
   __disable_irq();
 
+  pidReset(&pi_id);
+  pidReset(&pi_iq);
 
   /*
    * 30 ms test counter reset
@@ -320,8 +323,9 @@ void motorCurrentDiagStart(void)
   {
     current_l_test_id[i] = 0.0f;
     current_l_test_iq[i] = 0.0f;
-    current_l_test_theta[i] = 0.0f;
+    current_l_test_vd[i] = 0.0f;
     current_l_test_vq[i] = 0.0f;
+    current_l_test_theta[i] = 0.0f;
   }
 
 #if CURRENT_ADC_NOISE_TEST_ENABLE
@@ -498,7 +502,7 @@ uint32_t motorCurrentLTestGetCount(void)
 }
 
 
-bool motorCurrentLTestGetSample(uint32_t index, float *id, float *iq, float *vq, float *theta_e)
+bool motorCurrentLTestGetSample(uint32_t index, float *id, float *iq, float *vd, float *vq, float *theta_e)
 {
   if (index >= current_l_test_count)
   {
@@ -513,6 +517,11 @@ bool motorCurrentLTestGetSample(uint32_t index, float *id, float *iq, float *vq,
   if (iq != NULL)
   {
     *iq = current_l_test_iq[index];
+  }
+
+  if (vd != NULL)
+  {
+    *vd = current_l_test_vd[index];
   }
 
   if (vq != NULL)
@@ -833,6 +842,7 @@ static void motorNeutralPwmDiag(void)
   {
     current_l_test_id[current_l_test_count] = motor_monitor.id_meas;
     current_l_test_iq[current_l_test_count] = motor_monitor.iq_meas;
+    current_l_test_vd[current_l_test_count] = motor_monitor.vd_cmd;
     current_l_test_vq[current_l_test_count] = motor_monitor.vq_cmd;
     current_l_test_theta[current_l_test_count] = motor_monitor.theta_e;
     current_l_test_count++;

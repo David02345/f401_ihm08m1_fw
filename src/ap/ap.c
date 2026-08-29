@@ -76,7 +76,7 @@ void apMain(void)
 
 #else
 
-    motorSetCurrentReference(0.0f, 0.2f);
+    motorSetCurrentReference(0.4f, 0.0f);// 여기
 
 #endif
 
@@ -179,10 +179,11 @@ void apMain(void)
       uint32_t l_sample_count = 0U;
       float l_id = 0.0f;
       float l_iq = 0.0f;
+      float l_vd = 0.0f;
       float l_vq = 0.0f;
       float l_theta = 0.0f;
 
-#elif
+#else
       uint32_t noise_count = 0U;
       motor_abc_u16_t noise_raw;
       motor_abc_f_t noise_current;
@@ -246,7 +247,7 @@ void apMain(void)
       uartPrintf(
           _DEF_UART1,
           "\r\n"
-          "\r\n===== NEUTRAL PWM ADC NOISE TEST SUMMARY =====\r\n");
+          "\r\n===== CURRENT PI ID 200mA TEST =====\r\n");
 
       uartPrintf(
           _DEF_UART1,
@@ -463,39 +464,41 @@ void apMain(void)
   l_sample_count = motorCurrentLTestGetCount();
 
         uartPrintf(_DEF_UART1,
-                   "\r\n===== NEUTRAL PWM ADC NOISE TEST =====\r\n");
+                   "\r\n===== FIXED VD 120mV PLANT TEST =====\r\n");
 
-        uartPrintf(_DEF_UART1,
-                   "Iq Ref  : 200 mA\r\n");
-
-        uartPrintf(_DEF_UART1,
-                   "Kp      : 0.38\r\n");
-
-        uartPrintf(_DEF_UART1,
-                   "Ki      : 148.0\r\n");
-
-        uartPrintf(_DEF_UART1,
-                   "Ts      : 50 us\r\n");
-
+        uartPrintf(_DEF_UART1, "Id Ref  : 400 mA\r\n");
+        uartPrintf(_DEF_UART1, "Iq Ref  :   0 mA\r\n");
+        uartPrintf(_DEF_UART1, "Kp      : 0.30\r\n");
+        uartPrintf(_DEF_UART1, "Ki      : 246.0\r\n");
+        uartPrintf(_DEF_UART1, "Ts      : 50 us\r\n");
         uartPrintf(_DEF_UART1,
                    "Samples : %lu\r\n\r\n",
                    (unsigned long)l_sample_count);
 
         uartPrintf(_DEF_UART1,
-                   "N,Time_us,Id_mA,Iq_mA,Vq_mV,Theta_mrad\r\n");
+                   "N,Time_us,Id_mA,Iq_mA,Vd_mV,Vq_mV,Theta_mrad\r\n");
 
 
         for (uint32_t i = 0U; i < l_sample_count; i++)
         {
-          if (motorCurrentLTestGetSample(i, &l_id, &l_iq, &l_vq, &l_theta) == true)
+          if (motorCurrentLTestGetSample(i,
+                                         &l_id,
+                                         &l_iq,
+                                         &l_vd,
+                                         &l_vq,
+                                         &l_theta) == true)
           {
             uartPrintf(_DEF_UART1,
-                       "%lu,%lu,%ld,%ld,%ld,%ld\r\n",
+                       "%lu,%lu,%ld,%ld,%ld,%ld,%ld\r\n",
                        (unsigned long)i,
                        (unsigned long)(i * CURRENT_LOOP_PERIOD_US),
+
                        (long)(l_id * 1000.0f),
                        (long)(l_iq * 1000.0f),
+
+                       (long)(l_vd * 1000.0f),
                        (long)(l_vq * 1000.0f),
+
                        (long)(l_theta * 1000.0f));
           }
         }

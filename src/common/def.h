@@ -29,7 +29,7 @@
 /** @defgroup PID Gains for Current, Speed, Position Control
   * @{
   */
-#define CUR_KP                            0.63f  //0.2f
+#define CUR_KP                            0.30f  //0.2f
 #define CUR_KI                            246.0f   //50.0f
 #define CUR_KD                            0.0f
 #define SPD_KP                            0.05f
@@ -168,7 +168,7 @@
 #define CURRENT_ADC_NOISE_TEST_ENABLE     0U
 #define CURRENT_ADC_PWM_OFF_TEST_ENABLE   0U
 
-#define CURRENT_LOOP_TEST_TIME_MS         5U
+#define CURRENT_LOOP_TEST_TIME_MS         10U
 #define CURRENT_LOOP_PERIOD_US            50U
 
 #define CURRENT_LOOP_TEST_SAMPLE_COUNT    ((CURRENT_LOOP_TEST_TIME_MS * 1000U) / CURRENT_LOOP_PERIOD_US)
