@@ -53,6 +53,6 @@ bool motorCurrentLTestGetSample(uint32_t index, float *id, float *iq, float *vd,
 
 uint32_t motorCurrentNoiseGetCount(void);
 bool motorCurrentNoiseGetSample(uint32_t index, motor_abc_u16_t *raw, motor_abc_f_t *current);
-
+void motorCurrentDiagGetTripSnapshot(motor_abc_u16_t *raw, motor_abc_f_t *current);
 #endif
 #endif /* SRC_COMMON_HW_INCLUDE_MOTOR_H_ */

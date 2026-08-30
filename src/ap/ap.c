@@ -76,7 +76,7 @@ void apMain(void)
 
 #else
 
-    motorSetCurrentReference(0.4f, 0.0f);// 여기
+    motorSetCurrentReference(0.0f, 0.4f);// 여기
 
 #endif
 
@@ -540,11 +540,14 @@ void apMain(void)
 
       motor_fault_t test_fault;
 
+      motor_abc_u16_t trip_raw = {0};
+      motor_abc_f_t trip_current = {0};
 
       /*
        * ADC와 PWM 정지 후처리 전에 trip 순간의 값을 저장한다.
        */
       motorGetMonitor(&monitor);
+      motorCurrentDiagGetTripSnapshot(&trip_raw, &trip_current);
 
       /*
        * [수정]
@@ -623,7 +626,7 @@ void apMain(void)
       uartPrintf(
           _DEF_UART1,
           "\r\n"
-          "===== CURRENT FIXED ALPHA TEST =====\r\n");
+          "\r\n===== CURRENT PI ID TEST - FAULT =====\r\n");
 
 
       /*
@@ -644,7 +647,17 @@ void apMain(void)
             (int)test_fault);
       }
 
+      uartPrintf(_DEF_UART1,
+                 "Trip Raw    : %u, %u, %u\r\n",
+                 trip_raw.a,
+                 trip_raw.b,
+                 trip_raw.c);
 
+      uartPrintf(_DEF_UART1,
+                 "Trip Current: %ld, %ld, %ld mA\r\n",
+                 (long)(trip_current.a * 1000.0f),
+                 (long)(trip_current.b * 1000.0f),
+                 (long)(trip_current.c * 1000.0f));
       uartPrintf(
           _DEF_UART1,
           "Elapsed     : %lu ms\r\n",

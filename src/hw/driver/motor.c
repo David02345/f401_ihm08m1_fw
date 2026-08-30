@@ -24,7 +24,9 @@ static volatile motor_abc_f_t current_diag_i_min;
 static volatile motor_abc_f_t current_diag_i_max;
 static volatile float current_diag_id_sum = 0.0f;
 static volatile float current_diag_iq_sum = 0.0f;
+#define CURRENT_STARTUP_SETTLE_SAMPLES  4U
 
+static volatile uint32_t current_startup_count = 0U;
 
 
 static volatile uint32_t current_diag_tail_count = 0U;
@@ -47,6 +49,14 @@ static volatile uint32_t current_l_test_count = 0U;
 static volatile motor_abc_u16_t current_noise_raw[CURRENT_NOISE_TEST_SAMPLE_COUNT];
 static volatile motor_abc_f_t current_noise_amp[CURRENT_NOISE_TEST_SAMPLE_COUNT];
 static volatile uint32_t current_noise_count = 0U;
+
+static volatile uint16_t current_trip_raw_a = 0U;
+static volatile uint16_t current_trip_raw_b = 0U;
+static volatile uint16_t current_trip_raw_c = 0U;
+
+static volatile float current_trip_ia = 0.0f;
+static volatile float current_trip_ib = 0.0f;
+static volatile float current_trip_ic = 0.0f;
 
 #endif
 
@@ -291,6 +301,7 @@ void motorCurrentDiagStart(void)
    */
   current_diag_sample_count = 0U;
   current_diag_done = false;
+  current_startup_count = 0U;
 
   current_diag_id_sum = 0.0f;
   current_diag_iq_sum = 0.0f;
@@ -346,6 +357,14 @@ void motorCurrentDiagStart(void)
   }
 
 #endif
+
+  current_trip_raw_a = 0U;
+  current_trip_raw_b = 0U;
+  current_trip_raw_c = 0U;
+
+  current_trip_ia = 0.0f;
+  current_trip_ib = 0.0f;
+  current_trip_ic = 0.0f;
 
   /*
    * 실제 출력 시작
@@ -588,7 +607,23 @@ bool motorCurrentNoiseGetSample(uint32_t index, motor_abc_u16_t *raw, motor_abc_
 
 #endif
 
+void motorCurrentDiagGetTripSnapshot(motor_abc_u16_t *raw,
+                                     motor_abc_f_t *current)
+{
+  if (raw != NULL)
+  {
+    raw->a = current_trip_raw_a;
+    raw->b = current_trip_raw_b;
+    raw->c = current_trip_raw_c;
+  }
 
+  if (current != NULL)
+  {
+    current->a = current_trip_ia;
+    current->b = current_trip_ib;
+    current->c = current_trip_ic;
+  }
+}
 
 void motorStop(void)
 {
@@ -819,7 +854,63 @@ static void motorNeutralPwmDiag(void)
 
 #else
 
-  motorCurrentLoop(current_id_ref, current_iq_ref, theta_e);
+
+  /*
+   * PWM enable 직후 current-sense settling 구간
+   *
+   * 4 ISR = 4 x 50 us = 200 us
+   * 이 동안 PI를 실행하지 않고
+   * U/V/W = 50% neutral PWM만 유지한다.
+   */
+  if (current_startup_count < CURRENT_STARTUP_SETTLE_SAMPLES)
+  {
+    motor_abc_f_t i_abc;
+
+    /*
+     * ADC/current amplifier 값은 읽어주되
+     * 이 startup sample은 PI 및 진단 sample에 포함하지 않는다.
+     */
+    adcGetPhaseCurrent(&i_abc);
+
+    motor_monitor.ia = i_abc.a;
+    motor_monitor.ib = i_abc.b;
+    motor_monitor.ic = i_abc.c;
+
+    motor_monitor.id_ref  = 0.0f;
+    motor_monitor.id_meas = 0.0f;
+    motor_monitor.iq_ref  = 0.0f;
+    motor_monitor.iq_meas = 0.0f;
+
+    motor_monitor.vd_cmd = 0.0f;
+    motor_monitor.vq_cmd = 0.0f;
+
+    motor_monitor.duty_u = 0.5f;
+    motor_monitor.duty_v = 0.5f;
+    motor_monitor.duty_w = 0.5f;
+
+    pwmSetDuty(0.5f, 0.5f, 0.5f);
+
+    current_startup_count++;
+
+    /*
+     * 마지막 settling sample 이후
+     * 실제 current step이 항상 zero integral에서 시작하도록 reset
+     */
+    if (current_startup_count >= CURRENT_STARTUP_SETTLE_SAMPLES)
+    {
+      pidReset(&pi_id);
+      pidReset(&pi_iq);
+    }
+
+    return;
+  }
+
+  /*
+   * Settling 종료 후부터 정상 Current PI
+   */
+  motorCurrentLoop(current_id_ref,
+                   current_iq_ref,
+                   theta_e);
 
 #endif
 
@@ -943,7 +1034,6 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
   motor_dq_t i_dq;
   motor_dq_t v_dq;
   motor_alphabeta_t v_ab;
-  float max_phase_current;
 
   adcGetPhaseCurrent(&i_abc);
 
@@ -951,27 +1041,32 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
   motor_monitor.ib = i_abc.b;
   motor_monitor.ic = i_abc.c;
 
-  max_phase_current = fabsf(i_abc.a);
-
-  if (fabsf(i_abc.b) > max_phase_current)
+  if ((fabsf(i_abc.a) > CURRENT_TEST_OC_LIMIT_A) ||
+      (fabsf(i_abc.b) > CURRENT_TEST_OC_LIMIT_A) ||
+      (fabsf(i_abc.c) > CURRENT_TEST_OC_LIMIT_A))
   {
-    max_phase_current = fabsf(i_abc.b);
-  }
+    motor_abc_u16_t raw;
 
-  if (fabsf(i_abc.c) > max_phase_current)
-  {
-    max_phase_current = fabsf(i_abc.c);
-  }
+    /*
+     * SW overcurrent를 발생시킨 ADC sample 저장
+     */
+    adcGetCurrentRaw(&raw);
 
-  if (max_phase_current > CURRENT_TEST_OC_LIMIT_A)
-  {
+    current_trip_raw_a = raw.a;
+    current_trip_raw_b = raw.b;
+    current_trip_raw_c = raw.c;
+
+    current_trip_ia = i_abc.a;
+    current_trip_ib = i_abc.b;
+    current_trip_ic = i_abc.c;
+
     pwmDisableOutput();
 
     motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
     motor_state = MOTOR_STATE_FAULT;
+
     return;
   }
-
 
 
   focClarke(i_abc.a, i_abc.b, i_abc.c, &i_ab);
