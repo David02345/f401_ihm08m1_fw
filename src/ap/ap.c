@@ -76,7 +76,7 @@ void apMain(void)
 
 #else
 
-    motorSetCurrentReference(0.0f, 0.4f);// 여기
+    motorSetCurrentReference(0.0f, -0.4f);// 여기
 
 #endif
 
@@ -247,7 +247,7 @@ void apMain(void)
       uartPrintf(
           _DEF_UART1,
           "\r\n"
-          "\r\n===== CURRENT PI ID 200mA TEST =====\r\n");
+          "\r\n===== CURRENT PI IQ 400mA TEST =====\r\n");
 
       uartPrintf(
           _DEF_UART1,
@@ -464,10 +464,10 @@ void apMain(void)
   l_sample_count = motorCurrentLTestGetCount();
 
         uartPrintf(_DEF_UART1,
-                   "\r\n===== FIXED VD 120mV PLANT TEST =====\r\n");
+                   "\r\n===== IQ 400mA TEST =====\r\n");
 
-        uartPrintf(_DEF_UART1, "Id Ref  : 400 mA\r\n");
-        uartPrintf(_DEF_UART1, "Iq Ref  :   0 mA\r\n");
+        uartPrintf(_DEF_UART1, "Id Ref  :   0 mA\r\n");
+        uartPrintf(_DEF_UART1, "Iq Ref  : 400 mA\r\n");
         uartPrintf(_DEF_UART1, "Kp      : 0.30\r\n");
         uartPrintf(_DEF_UART1, "Ki      : 246.0\r\n");
         uartPrintf(_DEF_UART1, "Ts      : 50 us\r\n");
