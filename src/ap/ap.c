@@ -187,7 +187,6 @@ void apMain(void)
       motorCurrentDiagGetCurrentMinMax(&current_min, &current_max);
 
 
-      // [수정]
       // 실제 ISR 진단 sample 수 기준으로 계산
       current_test_adc_samples = motorCurrentDiagGetSampleCount();
 
