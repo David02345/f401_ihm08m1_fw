@@ -129,6 +129,7 @@ bool motorInit(void)
     ret = false;
     motor_state = MOTOR_STATE_FAULT;
   }
+
   if(adcInit() != true)
   {
     ret = false;
@@ -265,9 +266,7 @@ void motorStart(void)
   //pwmEnableOutput();
 }
 
-
-
-
+/* 테스트 함수들 -> Diag... */
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
     (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
 
@@ -291,7 +290,7 @@ void motorCurrentDiagStart(void)
 
 
   primask = __get_PRIMASK();
-  __disable_irq();
+  __disable_irq();            // 테스트 도중에 ADC 인터럽트 접근 X
 
   pidReset(&pi_id);
   pidReset(&pi_iq);
@@ -392,110 +391,14 @@ void motorCurrentDiagStart(void)
   }
 }
 
-
 bool motorCurrentDiagIsDone(void)
 {
   return current_diag_done;
 }
 
-
 uint32_t motorCurrentDiagGetSampleCount(void)
 {
   return current_diag_sample_count;
-}
-
-void motorCurrentDiagGetDQAverage(float *id_avg, float *iq_avg)
-{
-  uint32_t sample_count;
-
-  sample_count = current_diag_sample_count;
-
-  if (id_avg != NULL)
-  {
-    if (sample_count > 0U)
-    {
-      *id_avg = current_diag_id_sum / (float)sample_count;
-    }
-    else
-    {
-      *id_avg = 0.0f;
-    }
-  }
-
-  if (iq_avg != NULL)
-  {
-    if (sample_count > 0U)
-    {
-      *iq_avg = current_diag_iq_sum / (float)sample_count;
-    }
-    else
-    {
-      *iq_avg = 0.0f;
-    }
-  }
-}
-
-void motorCurrentDiagGetTailAverage(float *id_avg, float *iq_avg, float *vd_avg, float *vq_avg)
-{
-  uint32_t count;
-
-  count = current_diag_tail_count;
-
-
-  if (id_avg != NULL)
-  {
-    if (count > 0U)
-    {
-      *id_avg =
-          current_diag_tail_id_sum / (float)count;
-    }
-    else
-    {
-      *id_avg = 0.0f;
-    }
-  }
-
-
-  if (iq_avg != NULL)
-  {
-    if (count > 0U)
-    {
-      *iq_avg =
-          current_diag_tail_iq_sum / (float)count;
-    }
-    else
-    {
-      *iq_avg = 0.0f;
-    }
-  }
-
-
-  if (vd_avg != NULL)
-  {
-    if (count > 0U)
-    {
-      *vd_avg =
-          current_diag_tail_vd_sum / (float)count;
-    }
-    else
-    {
-      *vd_avg = 0.0f;
-    }
-  }
-
-
-  if (vq_avg != NULL)
-  {
-    if (count > 0U)
-    {
-      *vq_avg =
-          current_diag_tail_vq_sum / (float)count;
-    }
-    else
-    {
-      *vq_avg = 0.0f;
-    }
-  }
 }
 
 void motorCurrentDiagGetCurrentMinMax(motor_abc_f_t *i_min, motor_abc_f_t *i_max)
@@ -624,6 +527,8 @@ void motorCurrentDiagGetTripSnapshot(motor_abc_u16_t *raw,
     current->c = current_trip_ic;
   }
 }
+
+/* 테스트 함수들 -> Diag... */
 
 void motorStop(void)
 {

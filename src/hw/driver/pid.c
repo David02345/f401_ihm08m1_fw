@@ -44,7 +44,7 @@ float piController(pid_ctrl_t *pi, float ref, float feedback, float dt)
 
   pi->integral += pi->ki * error * dt;
   pi->integral = clampFloat(pi->integral, pi->integral_min, pi->integral_max);
-
+  // Anti Windup 구현 예정
   pi->output = pi->kp * error + pi->integral;
   pi->output = clampFloat(pi->output, pi->out_min, pi->out_max);
 

@@ -158,22 +158,6 @@ void apMain(void)
       int32_t iq_ref_ma;
       int32_t iq_meas_ma;
 
-      float id_avg;
-      float iq_avg;
-
-      int32_t id_avg_ma;
-      int32_t iq_avg_ma;
-
-      float id_tail_avg;
-      float iq_tail_avg;
-      float vd_tail_avg;
-      float vq_tail_avg;
-
-      int32_t id_tail_avg_ma;
-      int32_t iq_tail_avg_ma;
-
-      int32_t vd_tail_avg_mv;
-      int32_t vq_tail_avg_mv;
 
 #if !(CURRENT_ADC_NOISE_TEST_ENABLE)
       uint32_t l_sample_count = 0U;
@@ -202,17 +186,6 @@ void apMain(void)
       // [수정] 30 ms 전체 Min/Max snapshot
       motorCurrentDiagGetCurrentMinMax(&current_min, &current_max);
 
-      motorCurrentDiagGetDQAverage(&id_avg, &iq_avg);
-
-      id_avg_ma = (int32_t)(id_avg * 1000.0f);
-      iq_avg_ma = (int32_t)(iq_avg * 1000.0f);
-
-      motorCurrentDiagGetTailAverage(&id_tail_avg, &iq_tail_avg, &vd_tail_avg, &vq_tail_avg);
-
-      id_tail_avg_ma = (int32_t)(id_tail_avg * 1000.0f);
-      iq_tail_avg_ma = (int32_t)(iq_tail_avg * 1000.0f);
-      vd_tail_avg_mv = (int32_t)(vd_tail_avg * 1000.0f);
-      vq_tail_avg_mv = (int32_t)(vq_tail_avg * 1000.0f);
 
       // [수정]
       // 실제 ISR 진단 sample 수 기준으로 계산
@@ -328,34 +301,7 @@ void apMain(void)
           (long)iq_ref_ma,
           (long)iq_meas_ma);
       // [추가] 30 ms / 600 samples 전체 평균
-      uartPrintf(
-          _DEF_UART1,
-          "Id Average  : %ld mA\r\n",
-          (long)id_avg_ma);
 
-      uartPrintf(
-          _DEF_UART1,
-          "Iq Average  : %ld mA\r\n\r\n",
-          (long)iq_avg_ma);
-      uartPrintf(
-          _DEF_UART1,
-          "Id Last100  : %ld mA\r\n",
-          (long)id_tail_avg_ma);
-
-      uartPrintf(
-          _DEF_UART1,
-          "Iq Last100  : %ld mA\r\n",
-          (long)iq_tail_avg_ma);
-
-      uartPrintf(
-          _DEF_UART1,
-          "Vd Last100  : %ld mV\r\n",
-          (long)vd_tail_avg_mv);
-
-      uartPrintf(
-          _DEF_UART1,
-          "Vq Last100  : %ld mV\r\n\r\n",
-          (long)vq_tail_avg_mv);
       uartPrintf(
           _DEF_UART1,
           "Vdq         : %ld / %ld mV\r\n",

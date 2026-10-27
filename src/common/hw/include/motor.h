@@ -37,22 +37,26 @@ motor_fault_t motorGetFault(void);
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (_USE_HALL_OFFSET_CALIBRATION)
 bool motorGetHallCalibrationEvent(int8_t *sector, int8_t *direction, float *theta_e);
 #endif
+
+
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
     (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
 
-// [수정] Fixed alpha diagnostic
 void motorCurrentDiagStart(void);
-bool motorCurrentDiagIsDone(void);
-uint32_t motorCurrentDiagGetSampleCount(void);
-void motorCurrentDiagGetDQAverage(float *id_avg, float *iq_avg);
-void motorCurrentDiagGetCurrentMinMax(motor_abc_f_t *i_min, motor_abc_f_t *i_max);
-void motorCurrentDiagGetTailAverage(float *id_avg, float *iq_avg, float *vd_avg, float *vq_avg);
-
-uint32_t motorCurrentLTestGetCount(void);
-bool motorCurrentLTestGetSample(uint32_t index, float *id, float *iq, float *vd, float *vq, float *theta_e);
-
 uint32_t motorCurrentNoiseGetCount(void);
 bool motorCurrentNoiseGetSample(uint32_t index, motor_abc_u16_t *raw, motor_abc_f_t *current);
 void motorCurrentDiagGetTripSnapshot(motor_abc_u16_t *raw, motor_abc_f_t *current);
+
+// 분리 예정
+bool motorCurrentDiagIsDone(void);
+uint32_t motorCurrentDiagGetSampleCount(void);
+void motorCurrentDiagGetCurrentMinMax(motor_abc_f_t *i_min, motor_abc_f_t *i_max);
+
+uint32_t motorCurrentLTestGetCount(void);
+bool motorCurrentLTestGetSample(uint32_t index, float *id, float *iq, float *vd, float *vq, float *theta_e);
+// 분리 예정
+
+
 #endif
+
 #endif /* SRC_COMMON_HW_INCLUDE_MOTOR_H_ */
