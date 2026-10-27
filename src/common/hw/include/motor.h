@@ -50,6 +50,7 @@ void motorCurrentDiagGetTripSnapshot(motor_abc_u16_t *raw, motor_abc_f_t *curren
 // 분리 예정
 bool motorCurrentDiagIsDone(void);
 uint32_t motorCurrentDiagGetSampleCount(void);
+uint32_t motorCurrentDiagGetStartupTripSample(void);
 void motorCurrentDiagGetCurrentMinMax(motor_abc_f_t *i_min, motor_abc_f_t *i_max);
 
 uint32_t motorCurrentLTestGetCount(void);

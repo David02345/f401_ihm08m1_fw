@@ -27,7 +27,8 @@ static volatile float current_diag_iq_sum = 0.0f;
 #define CURRENT_STARTUP_SETTLE_SAMPLES  4U
 
 static volatile uint32_t current_startup_count = 0U;
-
+// motor.c 진단 변수 영역
+static volatile uint32_t current_trip_startup_sample = 0U;
 
 static volatile uint32_t current_diag_tail_count = 0U;
 
@@ -61,10 +62,6 @@ static volatile float current_trip_ic = 0.0f;
 #endif
 
 
-#if !((MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
-      (CURRENT_NEUTRAL_DIAG_ENABLE == 1U))
-static motor_duty_t motor_duty;
-#endif
 static motor_duty_t motor_duty;
 static pid_ctrl_t pi_id;
 static pid_ctrl_t pi_iq;
@@ -84,6 +81,8 @@ static float current_id_ref = 0.0f;
 static float current_iq_ref = 0.0f;
 
 static volatile motor_monitor_t motor_monitor;
+
+
 
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 
@@ -301,6 +300,7 @@ void motorCurrentDiagStart(void)
   current_diag_sample_count = 0U;
   current_diag_done = false;
   current_startup_count = 0U;
+  current_trip_startup_sample = 0U;
 
   current_diag_id_sum = 0.0f;
   current_diag_iq_sum = 0.0f;
@@ -400,7 +400,10 @@ uint32_t motorCurrentDiagGetSampleCount(void)
 {
   return current_diag_sample_count;
 }
-
+uint32_t motorCurrentDiagGetStartupTripSample(void)
+{
+  return current_trip_startup_sample;
+}
 void motorCurrentDiagGetCurrentMinMax(motor_abc_f_t *i_min, motor_abc_f_t *i_max)
 {
   if (i_min != NULL)
@@ -508,8 +511,6 @@ bool motorCurrentNoiseGetSample(uint32_t index, motor_abc_u16_t *raw, motor_abc_
 #endif
 }
 
-#endif
-
 void motorCurrentDiagGetTripSnapshot(motor_abc_u16_t *raw,
                                      motor_abc_f_t *current)
 {
@@ -527,6 +528,9 @@ void motorCurrentDiagGetTripSnapshot(motor_abc_u16_t *raw,
     current->c = current_trip_ic;
   }
 }
+
+#endif
+
 
 /* 테스트 함수들 -> Diag... */
 
@@ -738,13 +742,24 @@ static void motorNeutralPwmDiag(void)
 
   if (max_phase_current > CURRENT_TEST_OC_LIMIT_A)
   {
-    pwmDisableOutput();
+      // Trip 시점 데이터 저장
+      current_trip_raw_a = raw.a;
+      current_trip_raw_b = raw.b;
+      current_trip_raw_c = raw.c;
 
-    motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
-    motor_state = MOTOR_STATE_FAULT;
+      current_trip_ia = i_abc.a;
+      current_trip_ib = i_abc.b;
+      current_trip_ic = i_abc.c;
 
-    current_diag_active = false;
-    return;
+      pwmDisableOutput();
+
+      motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
+      motor_state = MOTOR_STATE_FAULT;
+
+      current_diag_active = false;
+      current_diag_done = false;
+
+      return;
   }
 
   if (current_noise_count <
@@ -780,6 +795,39 @@ static void motorNeutralPwmDiag(void)
     motor_monitor.ia = i_abc.a;
     motor_monitor.ib = i_abc.b;
     motor_monitor.ic = i_abc.c;
+
+    // Startup 200us 구간에서도 SW 과전류 검사
+    if ((fabsf(i_abc.a) > CURRENT_TEST_OC_LIMIT_A) ||
+        (fabsf(i_abc.b) > CURRENT_TEST_OC_LIMIT_A) ||
+        (fabsf(i_abc.c) > CURRENT_TEST_OC_LIMIT_A))
+    {
+      motor_abc_u16_t raw;
+      adcGetCurrentRaw(&raw);
+
+      // Fault 발생한 Startup 샘플 번호 (1~4)
+      current_trip_startup_sample = current_startup_count + 1U;
+
+      // Trip 시점의 ADC Raw 저장
+      current_trip_raw_a = raw.a;
+      current_trip_raw_b = raw.b;
+      current_trip_raw_c = raw.c;
+
+      // Trip 시점의 환산 전류 저장
+      current_trip_ia = i_abc.a;
+      current_trip_ib = i_abc.b;
+      current_trip_ic = i_abc.c;
+
+      // PWM 즉시 차단
+      pwmDisableOutput();
+
+      motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
+      motor_state = MOTOR_STATE_FAULT;
+
+      current_diag_active = false;
+      current_diag_done = false;
+
+      return;
+    }
 
     motor_monitor.id_ref  = 0.0f;
     motor_monitor.id_meas = 0.0f;
