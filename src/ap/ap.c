@@ -108,7 +108,7 @@ void apMain(void)
 
 #else
 
-    motorSetCurrentReference(0.0f, -0.4f);// 여기
+    motorSetCurrentReference(0.0f, 0.0f);// 여기
 
 #endif
 

@@ -44,6 +44,8 @@ static volatile bool diag_first_isr_seen = false;
 static volatile uint16_t diag_raw_before_a = 0U;
 static volatile uint16_t diag_raw_before_b = 0U;
 static volatile uint16_t diag_raw_before_c = 0U;
+
+static volatile bool diag_pwm_armed = false;
 // 여기까지
 
 static volatile uint32_t current_diag_tail_count = 0U;
@@ -303,10 +305,6 @@ void motorCurrentDiagStart(void)
 
   pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
 
-
-  primask = __get_PRIMASK();
-  __disable_irq();            // 테스트 도중에 ADC 인터럽트 접근 X
-
   pidReset(&pi_id);
   pidReset(&pi_iq);
 
@@ -338,7 +336,7 @@ void motorCurrentDiagStart(void)
   current_diag_i_max.b = 0.0f;
   current_diag_i_max.c = 0.0f;
 
-  current_diag_active = true;
+
 
   // [L TEST]
   current_l_test_count = 0U;
@@ -381,6 +379,13 @@ void motorCurrentDiagStart(void)
   current_trip_ib = 0.0f;
   current_trip_ic = 0.0f;
 
+  // 진단 초기화 완료 후 짧은 구간만 인터럽트 차단
+  primask = __get_PRIMASK();
+  __disable_irq();
+
+  diag_pwm_armed = false;
+  current_diag_active = true;
+
   // CPU Cycle Counter 활성화
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
@@ -410,21 +415,8 @@ void motorCurrentDiagStart(void)
   /*
    * 실제 출력 시작
    */
-#if CURRENT_ADC_PWM_OFF_TEST_ENABLE
 
-  /*
-   * ADC noise baseline test
-   *
-   * TIM1 / CH4 ADC trigger는 계속 동작
-   * MOSFET PWM output만 MOE OFF
-   */
   pwmDisableOutput();
-
-#else
-
-  pwmEnableOutput();
-
-#endif
 
 
   if (primask == 0U)
@@ -740,6 +732,32 @@ static void motorNeutralPwmDiag(void)
   {
     return;
   }
+
+#if (CURRENT_ADC_PWM_OFF_TEST_ENABLE == 0U)
+
+  // 첫 번째 ADC 완료 콜백에서 PWM 출력 활성화
+  if (diag_pwm_armed == false)
+  {
+    // 실제 MOE 활성화 직전의 TIM1 상태 기록
+    diag_cnt_before_output = TIM1->CNT;
+
+    // 출력 활성화 직전 ADC Raw 기록
+    diag_raw_before_a = (uint16_t)ADC1->JDR1;
+    diag_raw_before_b = (uint16_t)ADC1->JDR2;
+    diag_raw_before_c = (uint16_t)ADC1->JDR3;
+
+    diag_output_cycle = DWT->CYCCNT;
+
+    diag_pwm_armed = true;
+
+    pwmEnableOutput();
+
+    // 다음 ADC 콜백부터 Startup 전류 검사
+    return;
+  }
+
+#endif
+
   // 첫 ADC ISR의 TIM1 CNT와 경과 Cycle 기록
   if (diag_first_isr_seen == false)
   {
