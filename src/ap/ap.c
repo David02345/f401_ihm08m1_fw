@@ -6,6 +6,38 @@
  */
 #include "ap.h"
 
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
+
+static void apPrintCurrentDiagTiming(void)
+{
+  motor_diag_timing_t dbg = {0};
+
+  motorCurrentDiagGetTiming(&dbg);
+
+  uartPrintf(_DEF_UART1,
+             "DBG CNT cmd / ADC ISR : %lu / %lu\r\n",
+             (unsigned long)dbg.cnt_before_output,
+             (unsigned long)dbg.cnt_first_isr);
+
+  uartPrintf(_DEF_UART1,
+             "DBG JEOC / IRQ pending: %lu / %lu\r\n",
+             (unsigned long)dbg.jeoc_before_output,
+             (unsigned long)dbg.adc_irq_pending_before_output);
+
+  uartPrintf(_DEF_UART1,
+             "DBG ISR seen / delay : %u / %lu us\r\n",
+             (unsigned int)dbg.first_isr_seen,
+             (unsigned long)(dbg.cycles_to_first_isr /
+                 (SystemCoreClock / 1000000U)));
+  uartPrintf(_DEF_UART1,
+             "DBG Raw before output: %u, %u, %u\r\n",
+             (unsigned int)dbg.raw_before_a,
+             (unsigned int)dbg.raw_before_b,
+             (unsigned int)dbg.raw_before_c);
+}
+
+#endif
 
 void apInit(void)
 {
@@ -185,6 +217,7 @@ void apMain(void)
       uartPrintf(_DEF_UART1, "RESULT      : COMPLETE (Fault %d)\r\n", (int)monitor.fault);
       uartPrintf(_DEF_UART1, "Samples     : %lu\r\n",
                  (unsigned long)current_test_adc_samples);
+      apPrintCurrentDiagTiming();  // 추가
       uartPrintf(_DEF_UART1, "Ia Min/Max  : %ld / %ld mA\r\n",
                  (long)(current_min.a * 1000.0f),
                  (long)(current_max.a * 1000.0f));
@@ -347,6 +380,7 @@ void apMain(void)
                  (unsigned long)current_test_adc_samples);
       uartPrintf(_DEF_UART1, "Startup Trip: %lu\r\n",
                  (unsigned long)motorCurrentDiagGetStartupTripSample());
+      apPrintCurrentDiagTiming();
       uartPrintf(_DEF_UART1, "Trip Raw    : %u, %u, %u\r\n",
                  trip_raw.a, trip_raw.b, trip_raw.c);
       uartPrintf(_DEF_UART1, "Trip Current: %ld, %ld, %ld mA\r\n",

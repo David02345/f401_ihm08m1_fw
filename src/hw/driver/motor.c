@@ -29,6 +29,22 @@ static volatile float current_diag_iq_sum = 0.0f;
 static volatile uint32_t current_startup_count = 0U;
 // motor.c 진단 변수 영역
 static volatile uint32_t current_trip_startup_sample = 0U;
+// PWM Enable 및 첫 ADC ISR 타이밍 진단
+static volatile uint32_t diag_cnt_before_output = 0U;
+static volatile uint32_t diag_cnt_first_isr = 0U;
+
+static volatile uint32_t diag_jeoc_before_output = 0U;
+static volatile uint32_t diag_irq_pending_before_output = 0U;
+
+static volatile uint32_t diag_output_cycle = 0U;
+static volatile uint32_t diag_first_isr_cycles = 0U;
+
+static volatile bool diag_first_isr_seen = false;
+
+static volatile uint16_t diag_raw_before_a = 0U;
+static volatile uint16_t diag_raw_before_b = 0U;
+static volatile uint16_t diag_raw_before_c = 0U;
+// 여기까지
 
 static volatile uint32_t current_diag_tail_count = 0U;
 
@@ -365,6 +381,32 @@ void motorCurrentDiagStart(void)
   current_trip_ib = 0.0f;
   current_trip_ic = 0.0f;
 
+  // CPU Cycle Counter 활성화
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+  DWT->CYCCNT = 0U;
+
+  // 진단 변수 초기화
+  diag_first_isr_seen = false;
+
+  diag_cnt_before_output = TIM1->CNT;
+  diag_cnt_first_isr = 0U;
+
+  // PWM Enable 직전 ADC 상태
+  diag_jeoc_before_output =
+      ((ADC1->SR & ADC_SR_JEOC) != 0U) ? 1U : 0U;
+
+  diag_irq_pending_before_output =
+      (uint32_t)NVIC_GetPendingIRQ(ADC_IRQn);
+
+  // PWM 출력 전환 직전 ADC Injected 레지스터 확인
+  diag_raw_before_a = (uint16_t)ADC1->JDR1;
+  diag_raw_before_b = (uint16_t)ADC1->JDR2;
+  diag_raw_before_c = (uint16_t)ADC1->JDR3;
+
+  diag_first_isr_cycles = 0U;
+  diag_output_cycle = DWT->CYCCNT;
+
   /*
    * 실제 출력 시작
    */
@@ -390,6 +432,29 @@ void motorCurrentDiagStart(void)
     __enable_irq();
   }
 }
+
+void motorCurrentDiagGetTiming(motor_diag_timing_t *timing)
+{
+  if (timing == NULL)
+  {
+    return;
+  }
+
+  timing->cnt_before_output = diag_cnt_before_output;
+  timing->cnt_first_isr = diag_cnt_first_isr;
+
+  timing->raw_before_a = diag_raw_before_a;
+  timing->raw_before_b = diag_raw_before_b;
+  timing->raw_before_c = diag_raw_before_c;
+
+  timing->jeoc_before_output = diag_jeoc_before_output;
+  timing->adc_irq_pending_before_output =
+      diag_irq_pending_before_output;
+
+  timing->cycles_to_first_isr = diag_first_isr_cycles;
+  timing->first_isr_seen = diag_first_isr_seen;
+}
+
 
 bool motorCurrentDiagIsDone(void)
 {
@@ -675,7 +740,16 @@ static void motorNeutralPwmDiag(void)
   {
     return;
   }
+  // 첫 ADC ISR의 TIM1 CNT와 경과 Cycle 기록
+  if (diag_first_isr_seen == false)
+  {
+    diag_cnt_first_isr = TIM1->CNT;
 
+    diag_first_isr_cycles =
+        DWT->CYCCNT - diag_output_cycle;
+
+    diag_first_isr_seen = true;
+  }
 
   /*
    * [수정]

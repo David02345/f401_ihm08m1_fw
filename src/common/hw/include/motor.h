@@ -42,6 +42,25 @@ bool motorGetHallCalibrationEvent(int8_t *sector, int8_t *direction, float *thet
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
     (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
 
+typedef struct
+{
+  uint32_t cnt_before_output;
+  uint32_t cnt_first_isr;
+
+  uint16_t raw_before_a;
+  uint16_t raw_before_b;
+  uint16_t raw_before_c;
+
+  uint32_t jeoc_before_output;
+  uint32_t adc_irq_pending_before_output;
+
+  uint32_t cycles_to_first_isr;
+  bool first_isr_seen;
+
+} motor_diag_timing_t;
+
+void motorCurrentDiagGetTiming(motor_diag_timing_t *timing);
+
 void motorCurrentDiagStart(void);
 uint32_t motorCurrentNoiseGetCount(void);
 bool motorCurrentNoiseGetSample(uint32_t index, motor_abc_u16_t *raw, motor_abc_f_t *current);
