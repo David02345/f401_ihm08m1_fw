@@ -60,7 +60,7 @@ typedef struct
 } motor_diag_timing_t;
 
 void motorCurrentDiagGetTiming(motor_diag_timing_t *timing);
-
+uint32_t motorCurrentDiagGetMoeAfterOff(void);
 void motorCurrentDiagStart(void);
 uint32_t motorCurrentNoiseGetCount(void);
 bool motorCurrentNoiseGetSample(uint32_t index, motor_abc_u16_t *raw, motor_abc_f_t *current);

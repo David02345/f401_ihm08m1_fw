@@ -18,6 +18,89 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef* timHandle);
 
 static volatile bool pwm_break_fault = false;
 
+//------------------------테스트------------------------
+// 첫 번째 Break IRQ의 상태 저장
+static volatile bool pwm_break_snapshot_valid = false;
+
+static volatile uint32_t pwm_break_sr = 0U;
+static volatile uint32_t pwm_break_dier = 0U;
+static volatile uint32_t pwm_break_bdtr = 0U;
+static volatile uint32_t pwm_break_cnt = 0U;
+static volatile uint32_t pwm_break_gpioa_idr = 0U;
+
+
+// Break 기록 초기화
+static void pwmResetBreakSnapshot(void)
+{
+  pwm_break_snapshot_valid = false;
+
+  pwm_break_sr = 0U;
+  pwm_break_dier = 0U;
+  pwm_break_bdtr = 0U;
+  pwm_break_cnt = 0U;
+  pwm_break_gpioa_idr = 0U;
+}
+
+
+// HAL이 BIF를 지우기 전에 호출
+void pwmCaptureBreakIrq(void)
+{
+  uint32_t sr = TIM1->SR;
+  uint32_t dier = TIM1->DIER;
+
+  if (((sr & TIM_SR_BIF) == 0U) ||
+      ((dier & TIM_DIER_BIE) == 0U))
+  {
+    return;
+  }
+
+  // 최초 Break 발생 기록만 보관
+  if (pwm_break_snapshot_valid == false)
+  {
+    pwm_break_sr = sr;
+    pwm_break_dier = dier;
+    pwm_break_bdtr = TIM1->BDTR;
+    pwm_break_cnt = TIM1->CNT;
+    pwm_break_gpioa_idr = GPIOA->IDR;
+
+    pwm_break_snapshot_valid = true;
+  }
+
+  pwm_break_fault = true;
+}
+
+
+// 저장한 Break 정보 반환
+bool pwmGetBreakSnapshot(pwm_break_snapshot_t *snapshot)
+{
+  uint32_t primask;
+
+  if (snapshot == NULL)
+  {
+    return false;
+  }
+
+  primask = __get_PRIMASK();
+  __disable_irq();
+
+  snapshot->valid = pwm_break_snapshot_valid;
+  snapshot->sr = pwm_break_sr;
+  snapshot->dier = pwm_break_dier;
+  snapshot->bdtr = pwm_break_bdtr;
+  snapshot->cnt = pwm_break_cnt;
+  snapshot->gpioa_idr = pwm_break_gpioa_idr;
+
+  if (primask == 0U)
+  {
+    __enable_irq();
+  }
+
+  return snapshot->valid;
+}
+
+//---------------------여기까지-------------------------
+
+
 
 bool pwmInit(void)
 {
@@ -115,6 +198,14 @@ void pwmStart(void)
   pwmDisableOutput();
   pwmSetDuty(0.5f, 0.5f, 0.5f);
 
+
+
+  // 새로운 PWM 시험 시작 전 기록 초기화
+  pwmResetBreakSnapshot(); // 테스트
+
+
+
+
   pwmClearBreakFault();
   __HAL_TIM_CLEAR_FLAG(&htim1, TIM_FLAG_BREAK);
   __HAL_TIM_ENABLE_IT(&htim1, TIM_IT_BREAK);
@@ -144,7 +235,10 @@ void pwmEnableOutput(void)
 
 void pwmDisableOutput(void)
 {
-  __HAL_TIM_MOE_DISABLE(&htim1);
+  // __HAL_TIM_MOE_DISABLE(&htim1);
+  // CHx / CHxN Enable 상태와 무관하게
+  // TIM1 MOE 비트를 즉시 해제
+  TIM1->BDTR &= ~TIM_BDTR_MOE;
 }
 
 

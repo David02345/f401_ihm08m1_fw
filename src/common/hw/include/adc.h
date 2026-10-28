@@ -25,7 +25,8 @@
 //#define ADC_BEMF_CH2        ADC_CHANNEL_14           /*BEMF2*/
 //#define ADC_BEMF_CH3        ADC_CHANNEL_15           /*BEMF3*/
 
-#define ADC_CURR_ST           ADC_SAMPLETIME_28CYCLES  /*CURRENT sampling time */
+//#define ADC_CURR_ST           ADC_SAMPLETIME_28CYCLES  /*CURRENT sampling time */
+#define ADC_CURR_ST           ADC_SAMPLETIME_15CYCLES  /*CURRENT sampling time */
 #define ADC_VBUS_ST           ADC_SAMPLETIME_84CYCLES  /*VBUS sampling time*/
 #define ADC_SPEED_ST          ADC_SAMPLETIME_84CYCLES  /*SPEED sampling time*/
 #define ADC_TEMP_ST           ADC_SAMPLETIME_84CYCLES  /*TEMP sampling time*/

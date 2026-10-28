@@ -9,6 +9,53 @@
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
     (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
 
+// Break 발생 순간의 TIM1/GPIO 상태 출력
+static void apPrintBreakSnapshot(void)
+{
+  pwm_break_snapshot_t bk = {0};
+
+  if (pwmGetBreakSnapshot(&bk) == false)
+  {
+    uartPrintf(_DEF_UART1,
+               "BKIN snapshot: NONE\r\n");
+    return;
+  }
+
+  uartPrintf(
+      _DEF_UART1,
+      "BKIN IRQ SR/DIER: 0x%08lX / 0x%08lX\r\n",
+      (unsigned long)bk.sr,
+      (unsigned long)bk.dier
+  );
+
+  uartPrintf(
+      _DEF_UART1,
+      "BKIN IRQ CNT/BDTR: %lu / 0x%08lX\r\n",
+      (unsigned long)bk.cnt,
+      (unsigned long)bk.bdtr
+  );
+
+  uartPrintf(
+      _DEF_UART1,
+      "BKIN IRQ BIF/BIE : %u / %u\r\n",
+      (unsigned int)((bk.sr & TIM_SR_BIF) != 0U),
+      (unsigned int)((bk.dier & TIM_DIER_BIE) != 0U)
+  );
+
+  uartPrintf(
+      _DEF_UART1,
+      "BKIN IRQ PA6/MOE: %u / %u\r\n",
+      (unsigned int)((bk.gpioa_idr & GPIO_PIN_6) != 0U),
+      (unsigned int)((bk.bdtr & TIM_BDTR_MOE) != 0U)
+  );
+
+  uartPrintf(
+      _DEF_UART1,
+      "BKIN IRQ GPIOA_IDR: 0x%08lX\r\n",
+      (unsigned long)bk.gpioa_idr
+  );
+}
+
 static void apPrintCurrentDiagTiming(void)
 {
   motor_diag_timing_t dbg = {0};
@@ -108,7 +155,7 @@ void apMain(void)
 
 #else
 
-    motorSetCurrentReference(0.0f, 0.0f);// 여기
+    motorSetCurrentReference(0.0f, 0.1f);// 여기
 
 #endif
 
@@ -199,10 +246,15 @@ void apMain(void)
       prev_adc_count = adcGetCurrentUpdateCount();
 
 #if CURRENT_ADC_NOISE_TEST_ENABLE
-#if CURRENT_ADC_PWM_OFF_TEST_ENABLE
-      uartPrintf(_DEF_UART1, "\r\n===== PWM OFF ADC NOISE - SUMMARY =====\r\n");
+#if CURRENT_ADC_SEQUENCE_TEST_ENABLE
+  uartPrintf(_DEF_UART1,
+             "\r\n===== OFF-ON-OFF ADC SEQUENCE - SUMMARY =====\r\n");
+#elif CURRENT_ADC_PWM_OFF_TEST_ENABLE
+  uartPrintf(_DEF_UART1,
+             "\r\n===== PWM OFF ADC NOISE - SUMMARY =====\r\n");
 #else
-      uartPrintf(_DEF_UART1, "\r\n===== NEUTRAL PWM ON ADC NOISE - SUMMARY =====\r\n");
+  uartPrintf(_DEF_UART1,
+             "\r\n===== NEUTRAL PWM ON ADC NOISE - SUMMARY =====\r\n");
 #endif
 #else
       uartPrintf(_DEF_UART1, "\r\n===== CURRENT PI - SUMMARY =====\r\n");
@@ -218,6 +270,12 @@ void apMain(void)
       uartPrintf(_DEF_UART1, "Samples     : %lu\r\n",
                  (unsigned long)current_test_adc_samples);
       apPrintCurrentDiagTiming();  // 추가
+#if CURRENT_ADC_SEQUENCE_TEST_ENABLE// 추가
+      uartPrintf(
+          _DEF_UART1,
+          "MOE after PWM OFF : %lu\r\n",
+          (unsigned long)motorCurrentDiagGetMoeAfterOff());
+#endif// 추가
       uartPrintf(_DEF_UART1, "Ia Min/Max  : %ld / %ld mA\r\n",
                  (long)(current_min.a * 1000.0f),
                  (long)(current_max.a * 1000.0f));
@@ -231,10 +289,15 @@ void apMain(void)
 
   noise_count = motorCurrentNoiseGetCount();
 
-#if CURRENT_ADC_PWM_OFF_TEST_ENABLE
-  uartPrintf(_DEF_UART1, "\r\n===== PWM OFF ADC NOISE TEST =====\r\n");
+#if CURRENT_ADC_SEQUENCE_TEST_ENABLE
+  uartPrintf(_DEF_UART1,
+             "\r\n===== OFF-ON-OFF ADC SEQUENCE TEST =====\r\n");
+#elif CURRENT_ADC_PWM_OFF_TEST_ENABLE
+  uartPrintf(_DEF_UART1,
+             "\r\n===== PWM OFF ADC NOISE TEST =====\r\n");
 #else
-  uartPrintf(_DEF_UART1, "\r\n===== NEUTRAL PWM ON ADC NOISE TEST =====\r\n");
+  uartPrintf(_DEF_UART1,
+             "\r\n===== NEUTRAL PWM ON ADC NOISE TEST =====\r\n");
 #endif
   uartPrintf(_DEF_UART1, "Duty cmd: 500 / 500 / 500 permille\r\n");
   uartPrintf(_DEF_UART1, "Ts      : %lu us\r\n", (unsigned long)CURRENT_LOOP_PERIOD_US);
@@ -244,11 +307,24 @@ void apMain(void)
       "Samples : %lu\r\n\r\n",
       (unsigned long)noise_count);
 
+#if CURRENT_ADC_SEQUENCE_TEST_ENABLE
+
+  uint32_t seq_count[3] = {0U, 0U, 0U};
+
+  uint32_t seq_raw_sum[3][3] = {{0U}};
+
+  float seq_current_sum[3][3] = {{0.0f}};
+
+  uartPrintf(
+      _DEF_UART1,
+      "Stage: OFF1(0-99), ON(100-299), OFF2(300-399)\r\n");
+
+#endif
+
   uartPrintf(
       _DEF_UART1,
       "N,Time_us,RawA,RawB,RawC,"
       "Ia_mA,Ib_mA,Ic_mA,IabcSum_mA\r\n");
-
 
   for (uint32_t i = 0U;
        i < noise_count;
@@ -289,8 +365,91 @@ void apMain(void)
           (long)ib_ma,
           (long)ic_ma,
           (long)sum_ma);
+
+#if CURRENT_ADC_SEQUENCE_TEST_ENABLE
+
+      uint32_t stage;
+
+      if (i < CURRENT_SEQUENCE_OFF1_SAMPLES)
+      {
+        stage = 0U;
+      }
+      else if (i < (CURRENT_SEQUENCE_OFF1_SAMPLES +
+                    CURRENT_SEQUENCE_ON_SAMPLES))
+      {
+        stage = 1U;
+      }
+      else
+      {
+        stage = 2U;
+      }
+
+      seq_count[stage]++;
+
+      seq_raw_sum[stage][0] += noise_raw.a;
+      seq_raw_sum[stage][1] += noise_raw.b;
+      seq_raw_sum[stage][2] += noise_raw.c;
+
+      seq_current_sum[stage][0] += noise_current.a;
+      seq_current_sum[stage][1] += noise_current.b;
+      seq_current_sum[stage][2] += noise_current.c;
+
+#endif
+
     }
   }
+
+#if CURRENT_ADC_SEQUENCE_TEST_ENABLE
+
+  const char *stage_name[3] =
+  {
+    "OFF1",
+    "ON",
+    "OFF2"
+  };
+
+  uartPrintf(
+      _DEF_UART1,
+      "\r\n===== SEQUENCE AVERAGES =====\r\n");
+
+  for (uint32_t stage = 0U; stage < 3U; stage++)
+  {
+    uint32_t n = seq_count[stage];
+
+    if (n == 0U)
+    {
+      continue;
+    }
+
+    uartPrintf(
+        _DEF_UART1,
+        "%s : %lu samples\r\n",
+        stage_name[stage],
+        (unsigned long)n);
+
+    uint32_t avg_a = seq_raw_sum[stage][0] * 100U / n;
+    uint32_t avg_b = seq_raw_sum[stage][1] * 100U / n;
+    uint32_t avg_c = seq_raw_sum[stage][2] * 100U / n;
+
+    uartPrintf(
+        _DEF_UART1,
+        "  Raw Avg: %lu.%02lu, %lu.%02lu, %lu.%02lu\r\n",
+        (unsigned long)(avg_a / 100U),
+        (unsigned long)(avg_a % 100U),
+        (unsigned long)(avg_b / 100U),
+        (unsigned long)(avg_b % 100U),
+        (unsigned long)(avg_c / 100U),
+        (unsigned long)(avg_c % 100U));
+
+    uartPrintf(
+        _DEF_UART1,
+        "  Current Avg: %ld, %ld, %ld mA\r\n",
+        (long)(seq_current_sum[stage][0] * 1000.0f / n),
+        (long)(seq_current_sum[stage][1] * 1000.0f / n),
+        (long)(seq_current_sum[stage][2] * 1000.0f / n));
+  }
+
+#endif
 
   uartPrintf(
       _DEF_UART1,
@@ -376,6 +535,15 @@ void apMain(void)
       uartPrintf(_DEF_UART1, "\r\n===== CURRENT PI TEST - FAULT =====\r\n");
 #endif
       uartPrintf(_DEF_UART1, "Fault       : %d\r\n", (int)test_fault);
+      if (test_fault == MOTOR_FAULT_BKIN)
+      {
+        apPrintBreakSnapshot();
+
+        uartPrintf(
+            _DEF_UART1,
+            "NOTE: PA6 is level at IRQ entry, not pulse history.\r\n"
+        );
+      }
       uartPrintf(_DEF_UART1, "Samples     : %lu\r\n",
                  (unsigned long)current_test_adc_samples);
       uartPrintf(_DEF_UART1, "Startup Trip: %lu\r\n",

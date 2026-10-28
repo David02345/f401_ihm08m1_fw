@@ -252,6 +252,11 @@ void TIM1_BRK_TIM9_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM1_BRK_TIM9_IRQn 0 */
 
+
+  // HAL이 BIF 플래그를 지우기 전에 상태 저장
+  pwmCaptureBreakIrq(); // 테스트
+
+
   /* USER CODE END TIM1_BRK_TIM9_IRQn 0 */
   HAL_TIM_IRQHandler(&htim1);
   /* USER CODE BEGIN TIM1_BRK_TIM9_IRQn 1 */

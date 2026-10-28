@@ -46,6 +46,7 @@ static volatile uint16_t diag_raw_before_b = 0U;
 static volatile uint16_t diag_raw_before_c = 0U;
 
 static volatile bool diag_pwm_armed = false;
+static volatile uint32_t diag_moe_after_off = 2U;
 // 여기까지
 
 static volatile uint32_t current_diag_tail_count = 0U;
@@ -384,6 +385,7 @@ void motorCurrentDiagStart(void)
   __disable_irq();
 
   diag_pwm_armed = false;
+  diag_moe_after_off = 2U;
   current_diag_active = true;
 
   // CPU Cycle Counter 활성화
@@ -446,7 +448,10 @@ void motorCurrentDiagGetTiming(motor_diag_timing_t *timing)
   timing->cycles_to_first_isr = diag_first_isr_cycles;
   timing->first_isr_seen = diag_first_isr_seen;
 }
-
+uint32_t motorCurrentDiagGetMoeAfterOff(void)
+{
+  return diag_moe_after_off;
+}
 
 bool motorCurrentDiagIsDone(void)
 {
@@ -733,7 +738,8 @@ static void motorNeutralPwmDiag(void)
     return;
   }
 
-#if (CURRENT_ADC_PWM_OFF_TEST_ENABLE == 0U)
+#if (CURRENT_ADC_PWM_OFF_TEST_ENABLE == 0U) && \
+    (CURRENT_ADC_SEQUENCE_TEST_ENABLE == 0U)
 
   // 첫 번째 ADC 완료 콜백에서 PWM 출력 활성화
   if (diag_pwm_armed == false)
@@ -985,6 +991,81 @@ static void motorNeutralPwmDiag(void)
   }
 #endif
   current_diag_sample_count++;
+
+// ====================================================
+// OFF -> ON -> OFF ADC Sequence Test
+//
+// 0 ~ 99     : PWM OFF
+// 100 ~ 299  : PWM ON, Neutral 50%
+// 300 ~ 399  : PWM OFF
+//
+// ADC 샘플 저장 후 PWM 상태 전환.
+// Offset 재보정 없음.
+// ====================================================
+#if (CURRENT_ADC_SEQUENCE_TEST_ENABLE == 1U) && \
+    (CURRENT_ADC_NOISE_TEST_ENABLE == 1U)
+
+  if (current_diag_sample_count ==
+      CURRENT_SEQUENCE_OFF1_SAMPLES)
+  {
+    // 100번째 OFF 샘플 저장 완료
+    // 다음 샘플부터 Neutral PWM ON
+    diag_cnt_before_output = TIM1->CNT;
+    diag_raw_before_a = (uint16_t)ADC1->JDR1;
+    diag_raw_before_b = (uint16_t)ADC1->JDR2;
+    diag_raw_before_c = (uint16_t)ADC1->JDR3;
+
+    diag_output_cycle = DWT->CYCCNT;
+    diag_first_isr_seen = false;
+
+    diag_pwm_armed = true;
+
+    // 기존 BKIN 보호 상태를 확인한 경우에만 실행
+    if ((motor_state == MOTOR_STATE_CURRENT_LOOP) &&
+        (motor_fault == MOTOR_FAULT_NONE) &&
+        (pwmIsBreakFault() == false) &&
+        ((TIM1->SR & TIM_SR_BIF) == 0U))
+    {
+      pwmEnableOutput();
+    }
+
+    else
+    {
+      pwmDisableOutput();
+
+      current_diag_active = false;
+      current_diag_done = false;
+
+      // 기존 Break 보호 상태라면 Fault로 전환
+      if (pwmIsBreakFault() ||
+          ((TIM1->SR & TIM_SR_BIF) != 0U))
+      {
+        motor_fault = MOTOR_FAULT_BKIN;
+      }
+      else
+      {
+        // 예상하지 못한 출력 활성화 조건 실패
+        motor_fault = MOTOR_FAULT_INIT_FAIL;
+      }
+
+      motor_state = MOTOR_STATE_FAULT;
+      return;
+    }
+
+  }
+
+  if (current_diag_sample_count ==
+      (CURRENT_SEQUENCE_OFF1_SAMPLES +
+       CURRENT_SEQUENCE_ON_SAMPLES))
+  {
+    pwmDisableOutput();
+
+    // PWM OFF 명령 직후 MOE 상태 기록
+    diag_moe_after_off =
+        ((TIM1->BDTR & TIM_BDTR_MOE) != 0U) ? 1U : 0U;
+  }
+
+#endif
 
   current_diag_id_sum += motor_monitor.id_meas;
   current_diag_iq_sum += motor_monitor.iq_meas;

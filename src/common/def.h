@@ -165,10 +165,33 @@
   * @{
   */
 #define CURRENT_NEUTRAL_DIAG_ENABLE       1U
-#define CURRENT_ADC_NOISE_TEST_ENABLE     0U
-#define CURRENT_ADC_PWM_OFF_TEST_ENABLE   0U
+#define CURRENT_ADC_NOISE_TEST_ENABLE     1U
 
-#define CURRENT_LOOP_TEST_TIME_MS         10U
+// 기존 111/110 시험에 사용
+#define CURRENT_ADC_PWM_OFF_TEST_ENABLE   1U
+
+// 신규 OFF -> ON -> OFF 시험
+// 1: 신규 20ms 연속 시험
+// 0: 기존 111/110 시험
+#define CURRENT_ADC_SEQUENCE_TEST_ENABLE  1U
+#if (CURRENT_ADC_SEQUENCE_TEST_ENABLE == 1U) && \
+    ((CURRENT_NEUTRAL_DIAG_ENABLE != 1U) || \
+     (CURRENT_ADC_NOISE_TEST_ENABLE != 1U))
+#error "ADC sequence test requires neutral diagnostic and noise test"
+#endif
+#if (CURRENT_ADC_SEQUENCE_TEST_ENABLE == 1U)
+
+#define CURRENT_LOOP_TEST_TIME_MS 20U
+
+#define CURRENT_SEQUENCE_OFF1_SAMPLES 100U
+#define CURRENT_SEQUENCE_ON_SAMPLES   200U
+#define CURRENT_SEQUENCE_OFF2_SAMPLES 100U
+
+#else
+
+#define CURRENT_LOOP_TEST_TIME_MS 10U
+
+#endif
 #define CURRENT_LOOP_PERIOD_US            50U
 
 #define CURRENT_LOOP_TEST_SAMPLE_COUNT    ((CURRENT_LOOP_TEST_TIME_MS * 1000U) / CURRENT_LOOP_PERIOD_US)
@@ -184,7 +207,7 @@
 
 #define CURRENT_L_TEST_SAMPLE_COUNT       CURRENT_LOOP_TEST_SAMPLE_COUNT
 
-// [추가] 마지막 100 samples = 마지막 5 ms 평균
+// [추가] 마지막 100 samples = 마지막 1 ms 평균
 #define CURRENT_DIAG_TAIL_SAMPLES         20U
 /**
   * @}
