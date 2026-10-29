@@ -992,6 +992,28 @@ static void motorNeutralPwmDiag(void)
 #endif
   current_diag_sample_count++;
 
+#if (CURRENT_IQ_STEP_TEST_ENABLE == 1U)
+
+  // 100 samples = 5ms
+  // 0mA -> +100mA
+  if (current_diag_sample_count ==
+      CURRENT_IQ_STEP_STAGE_SAMPLES)
+  {
+    motorSetCurrentReference(
+        0.0f,
+        CURRENT_IQ_STEP_REF_A);
+  }
+
+  // 200 samples = 10ms
+  // +100mA -> 0mA
+  else if (current_diag_sample_count ==
+           (CURRENT_IQ_STEP_STAGE_SAMPLES * 2U))
+  {
+    motorSetCurrentReference(0.0f, 0.0f);
+  }
+
+#endif
+
 // ====================================================
 // OFF -> ON -> OFF ADC Sequence Test
 //

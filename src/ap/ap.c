@@ -153,9 +153,15 @@ void apMain(void)
 
     motorSetCurrentReference(0.0f, 0.0f);
 
+#elif CURRENT_IQ_STEP_TEST_ENABLE
+
+    // Step Test는 0mA에서 시작
+    motorSetCurrentReference(0.0f, 0.0f);
+
 #else
 
-    motorSetCurrentReference(0.0f, 0.1f);// 여기
+    // 기존 단일 지령 전류 PI 시험
+    motorSetCurrentReference(0.0f, 0.1f);
 
 #endif
 
@@ -458,7 +464,17 @@ void apMain(void)
 #else
   l_sample_count = motorCurrentLTestGetCount();
 
-  uartPrintf(_DEF_UART1, "\r\n===== CURRENT PI IQ TEST =====\r\n");
+#if CURRENT_IQ_STEP_TEST_ENABLE
+
+  uartPrintf(_DEF_UART1,
+           "\r\n===== CURRENT PI IQ STEP RESPONSE TEST =====\r\n");
+
+#else
+
+  uartPrintf(_DEF_UART1,
+           "\r\n===== CURRENT PI IQ TEST =====\r\n");
+
+#endif
   uartPrintf(_DEF_UART1, "Id Ref  : %ld mA\r\n", (long)id_ref_ma);
   uartPrintf(_DEF_UART1, "Iq Ref  : %ld mA\r\n", (long)iq_ref_ma);
   uartPrintf(_DEF_UART1, "Kp      : 0.30\r\n");
@@ -466,38 +482,158 @@ void apMain(void)
   uartPrintf(_DEF_UART1, "Ts      : %lu us\r\n", (unsigned long)CURRENT_LOOP_PERIOD_US);
   uartPrintf(_DEF_UART1, "Samples : %lu\r\n\r\n", (unsigned long)l_sample_count);
 
+
+#if CURRENT_IQ_STEP_TEST_ENABLE
+
+uartPrintf(_DEF_UART1,
+           "N,Time_us,IqRef_mA,Id_mA,Iq_mA,"
+           "Vd_mV,Vq_mV,Theta_mrad\r\n");
+
+#else
+
+uartPrintf(_DEF_UART1,
+           "N,Time_us,Id_mA,Iq_mA,"
+           "Vd_mV,Vq_mV,Theta_mrad\r\n");
+
+#endif
+
+for (uint32_t i = 0U; i < l_sample_count; i++)
+{
+  if (motorCurrentLTestGetSample(i,
+                                 &l_id,
+                                 &l_iq,
+                                 &l_vd,
+                                 &l_vq,
+                                 &l_theta) == true)
+  {
+#if CURRENT_IQ_STEP_TEST_ENABLE
+
+    int32_t iq_ref_ma = 0;
+
+    if ((i >= CURRENT_IQ_STEP_STAGE_SAMPLES) &&
+        (i < CURRENT_IQ_STEP_STAGE_SAMPLES * 2U))
+    {
+      iq_ref_ma =
+          (int32_t)(CURRENT_IQ_STEP_REF_A * 1000.0f);
+    }
+
+    uartPrintf(_DEF_UART1,
+               "%lu,%lu,%ld,%ld,%ld,%ld,%ld,%ld\r\n",
+               (unsigned long)i,
+               (unsigned long)(i * CURRENT_LOOP_PERIOD_US),
+               (long)iq_ref_ma,
+               (long)(l_id * 1000.0f),
+               (long)(l_iq * 1000.0f),
+               (long)(l_vd * 1000.0f),
+               (long)(l_vq * 1000.0f),
+               (long)(l_theta * 1000.0f));
+
+#else
+
+    uartPrintf(_DEF_UART1,
+               "%lu,%lu,%ld,%ld,%ld,%ld,%ld\r\n",
+               (unsigned long)i,
+               (unsigned long)(i * CURRENT_LOOP_PERIOD_US),
+               (long)(l_id * 1000.0f),
+               (long)(l_iq * 1000.0f),
+               (long)(l_vd * 1000.0f),
+               (long)(l_vq * 1000.0f),
+               (long)(l_theta * 1000.0f));
+
+#endif
+  }
+}
+
+
         uartPrintf(_DEF_UART1,
-                   "N,Time_us,Id_mA,Iq_mA,Vd_mV,Vq_mV,Theta_mrad\r\n");
+                   "============================\r\n");
 
-
-        for (uint32_t i = 0U; i < l_sample_count; i++)
+        /* 마지막 1ms 전류 PI 응답 분석 */
         {
-          if (motorCurrentLTestGetSample(i,
-                                         &l_id,
-                                         &l_iq,
-                                         &l_vd,
-                                         &l_vq,
-                                         &l_theta) == true)
+          uint32_t tail_count = CURRENT_DIAG_TAIL_SAMPLES;
+
+          if (tail_count > l_sample_count)
           {
+            tail_count = l_sample_count;
+          }
+
+          float id_sum = 0.0f;
+          float iq_sum = 0.0f;
+          float vq_sum = 0.0f;
+
+          float iq_min = 0.0f;
+          float iq_max = 0.0f;
+
+          uint32_t valid_count = 0U;
+
+          for (uint32_t i = l_sample_count - tail_count;
+               i < l_sample_count; i++)
+          {
+            if (motorCurrentLTestGetSample(i,
+                                           &l_id,
+                                           &l_iq,
+                                           &l_vd,
+                                           &l_vq,
+                                           &l_theta) == true)
+            {
+              id_sum += l_id;
+              iq_sum += l_iq;
+              vq_sum += l_vq;
+
+              if (valid_count == 0U)
+              {
+                iq_min = l_iq;
+                iq_max = l_iq;
+              }
+              else
+              {
+                if (l_iq < iq_min) iq_min = l_iq;
+                if (l_iq > iq_max) iq_max = l_iq;
+              }
+
+              valid_count++;
+            }
+          }
+
+          if (valid_count > 0U)
+          {
+            float id_avg = id_sum / valid_count;
+            float iq_avg = iq_sum / valid_count;
+            float vq_avg = vq_sum / valid_count;
+
             uartPrintf(_DEF_UART1,
-                       "%lu,%lu,%ld,%ld,%ld,%ld,%ld\r\n",
-                       (unsigned long)i,
-                       (unsigned long)(i * CURRENT_LOOP_PERIOD_US),
+                       "\r\n===== CURRENT PI TAIL SUMMARY =====\r\n");
 
-                       (long)(l_id * 1000.0f),
-                       (long)(l_iq * 1000.0f),
+            uartPrintf(_DEF_UART1,
+                       "Tail Samples : %lu\r\n",
+                       (unsigned long)valid_count);
 
-                       (long)(l_vd * 1000.0f),
-                       (long)(l_vq * 1000.0f),
+            uartPrintf(_DEF_UART1,
+                       "Id Avg       : %ld mA\r\n",
+                       (long)(id_avg * 1000.0f));
 
-                       (long)(l_theta * 1000.0f));
+            uartPrintf(_DEF_UART1,
+                       "Iq Avg       : %ld mA\r\n",
+                       (long)(iq_avg * 1000.0f));
+
+            uartPrintf(_DEF_UART1,
+                       "Iq Min/Max   : %ld / %ld mA\r\n",
+                       (long)(iq_min * 1000.0f),
+                       (long)(iq_max * 1000.0f));
+
+            uartPrintf(_DEF_UART1,
+                       "Vq Avg       : %ld mV\r\n",
+                       (long)(vq_avg * 1000.0f));
+
+            uartPrintf(_DEF_UART1,
+                       "Iq Error Avg : %ld mA\r\n",
+                       (long)((iq_ref_ma / 1000.0f - iq_avg)
+                              * 1000.0f));
           }
         }
 
         uartPrintf(_DEF_UART1,
                    "============================\r\n");
-
-
 #endif
 
     }
