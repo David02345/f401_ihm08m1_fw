@@ -60,9 +60,15 @@ static volatile float current_diag_tail_vq_sum = 0.0f;
 // [L TEST] 첫 3 ms current response 저장
 static volatile float current_l_test_id[CURRENT_L_TEST_SAMPLE_COUNT];
 static volatile float current_l_test_iq[CURRENT_L_TEST_SAMPLE_COUNT];
-static volatile float current_l_test_theta[CURRENT_L_TEST_SAMPLE_COUNT];
 static volatile float current_l_test_vq[CURRENT_L_TEST_SAMPLE_COUNT];
 static volatile float current_l_test_vd[CURRENT_L_TEST_SAMPLE_COUNT];
+static volatile float current_l_test_theta[CURRENT_L_TEST_SAMPLE_COUNT];
+
+static volatile uint8_t current_l_test_hall_state[CURRENT_L_TEST_SAMPLE_COUNT];
+static volatile int8_t current_l_test_hall_sector[CURRENT_L_TEST_SAMPLE_COUNT];
+static volatile uint8_t current_l_test_hall_valid[CURRENT_L_TEST_SAMPLE_COUNT];
+
+
 
 static volatile uint32_t current_l_test_count = 0U;
 
@@ -102,6 +108,49 @@ static float current_iq_ref = 0.0f;
 static volatile motor_monitor_t motor_monitor;
 
 
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (CURRENT_ADC_RAW_SCAN_ENABLE == 1U)
+
+static volatile motor_adc_raw_scan_t adc_raw_scan;
+  #if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+  #define ADC_SCAN_STARTUP_SAMPLES 4U
+
+  static volatile uint16_t split_raw_min[2][3];
+  static volatile uint16_t split_raw_max[2][3];
+  static volatile uint32_t split_spike_count[2][3];
+  static volatile uint32_t split_sample_count[2];
+
+  #endif
+
+  #if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+  static volatile bool adc_pwm_on_scan_done = false;
+  static volatile bool adc_pwm_on_scan_seen = false;
+
+  #endif
+
+#endif
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (CURRENT_FOC_BENCH_ENABLE == 1U)
+
+static volatile uint32_t foc_bench_count = 0U;
+static volatile uint32_t foc_bench_total_cycles = 0U;
+static volatile uint32_t foc_bench_max_cycles = 0U;
+
+#if CURRENT_FOC_BENCH_DIAG_LOAD == 1U
+
+static volatile uint32_t foc_bench_diag_index = 0U;
+
+static volatile float foc_bench_ia_min = 0.0f;
+static volatile float foc_bench_ia_max = 0.0f;
+static volatile float foc_bench_ib_min = 0.0f;
+static volatile float foc_bench_ib_max = 0.0f;
+static volatile float foc_bench_ic_min = 0.0f;
+static volatile float foc_bench_ic_max = 0.0f;
+
+#endif
+
+#endif
 
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 
@@ -125,6 +174,286 @@ static int8_t hall_cal_prev_sector = -1;
 #endif
 #endif
 static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e);
+
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_ADC_RAW_SCAN_ENABLE == 1U)
+
+
+
+static void motorAdcRawScanUpdateStreak(
+    const uint16_t raw[3],
+    const float offset[3],
+    const float current[3])
+{
+  bool first_oc_found = false;
+
+  for (uint32_t i = 0U; i < 3U; i++)
+  {
+    float raw_error = fabsf((float)raw[i] - offset[i]);
+
+    bool spike = (raw_error >= (float)CURRENT_ADC_RAW_SPIKE_COUNTS);
+    bool overcurrent = (fabsf(current[i]) >= CURRENT_ADC_SCAN_OC_LIMIT_A);
+
+    // 1. 스파이크 연속 발생 길이
+    if (spike)
+    {
+      adc_raw_scan.spike_streak[i]++;
+
+      if (adc_raw_scan.spike_streak[i] > adc_raw_scan.spike_max_streak[i])
+      {
+        adc_raw_scan.spike_max_streak[i] = adc_raw_scan.spike_streak[i];
+      }
+
+      if (adc_raw_scan.spike_streak[i] >= 2U)
+      {
+        adc_raw_scan.spike_adjacent_pairs[i]++;
+      }
+    }
+    else
+    {
+      adc_raw_scan.spike_streak[i] = 0U;
+    }
+
+    // 2. 0.8A 이상 측정값 기록
+    if (overcurrent)
+    {
+      adc_raw_scan.oc_sample_count[i]++;
+      adc_raw_scan.oc_streak[i]++;
+
+      if (adc_raw_scan.oc_streak[i] > adc_raw_scan.oc_max_streak[i])
+      {
+        adc_raw_scan.oc_max_streak[i] = adc_raw_scan.oc_streak[i];
+      }
+
+      if (adc_raw_scan.first_oc_sample == 0U)
+      {
+        first_oc_found = true;
+      }
+    }
+    else
+    {
+      adc_raw_scan.oc_streak[i] = 0U;
+    }
+  }
+
+  // 3. 최초 과전류 측정값의 3상 Raw 저장
+  if (first_oc_found &&
+      adc_raw_scan.first_oc_sample == 0U)
+  {
+      adc_raw_scan.first_oc_sample =
+          adc_raw_scan.sample_count + 1U;
+
+      adc_raw_scan.first_oc_raw[0] = raw[0];
+      adc_raw_scan.first_oc_raw[1] = raw[1];
+      adc_raw_scan.first_oc_raw[2] = raw[2];
+  }
+}
+
+
+static void motorAdcRawScanUpdate(void)
+{
+  motor_abc_u16_t raw;
+  motor_abc_f_t offset;
+  motor_abc_f_t current;
+
+  adcGetCurrentRaw(&raw);
+  adcGetCurrentOffset(&offset);
+  adcGetPhaseCurrent(&current);
+
+  uint16_t r[3] = {raw.a, raw.b, raw.c};
+  float off[3] = {offset.a, offset.b, offset.c};
+  float amp[3] = {current.a, current.b, current.c};
+
+  // 기존 motorAdcRawScanUpdate() 내부에서 사용한
+  // r[], off[], current[] 배열을 그대로 전달
+  motorAdcRawScanUpdateStreak(r, off, amp);
+
+  uint32_t n = adc_raw_scan.sample_count;
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+  // 0~3번 샘플: Startup
+  // 4번 이후: Steady
+  uint32_t group = (n < ADC_SCAN_STARTUP_SAMPLES) ? 0U : 1U;
+
+  for (uint32_t i = 0U; i < 3U; i++)
+  {
+    if (split_sample_count[group] == 0U)
+    {
+      split_raw_min[group][i] = r[i];
+      split_raw_max[group][i] = r[i];
+    }
+    else
+    {
+      if (r[i] < split_raw_min[group][i])
+        split_raw_min[group][i] = r[i];
+
+      if (r[i] > split_raw_max[group][i])
+        split_raw_max[group][i] = r[i];
+    }
+
+    if (fabsf((float)r[i] - off[i]) >= (float)CURRENT_ADC_RAW_SPIKE_COUNTS)
+    {
+      split_spike_count[group][i]++;
+    }
+  }
+
+  split_sample_count[group]++;
+
+#endif
+
+
+  // 첫 샘플에서 Min/Max 초기화
+  for (uint32_t i = 0U; i < 3U; i++)
+  {
+    if (n == 0U)
+    {
+      adc_raw_scan.raw_min[i] = r[i];
+      adc_raw_scan.raw_max[i] = r[i];
+
+      adc_raw_scan.current_min[i] = amp[i];
+      adc_raw_scan.current_max[i] = amp[i];
+    }
+    else
+    {
+      if (r[i] < adc_raw_scan.raw_min[i])
+          adc_raw_scan.raw_min[i] = r[i];
+
+      if (r[i] > adc_raw_scan.raw_max[i])
+          adc_raw_scan.raw_max[i] = r[i];
+
+      if (amp[i] < adc_raw_scan.current_min[i])
+          adc_raw_scan.current_min[i] = amp[i];
+
+      if (amp[i] > adc_raw_scan.current_max[i])
+          adc_raw_scan.current_max[i] = amp[i];
+    }
+  }
+
+  // Offset 대비 이상 샘플 검사
+  for (uint32_t i = 0U; i < 3U; i++)
+  {
+    float diff = fabsf((float)r[i] - off[i]);
+
+    if (diff >= (float)CURRENT_ADC_RAW_SPIKE_COUNTS)
+    {
+      adc_raw_scan.spike_count[i]++;
+
+      // 첫 이상 샘플의 세 채널을 동시에 저장
+      if (adc_raw_scan.first_spike_sample == 0U)
+      {
+        adc_raw_scan.first_spike_sample = n + 1U;
+
+        adc_raw_scan.first_spike_raw[0] = r[0];
+        adc_raw_scan.first_spike_raw[1] = r[1];
+        adc_raw_scan.first_spike_raw[2] = r[2];
+      }
+    }
+  }
+
+  // 기존 모니터에도 현재 센싱값 반영
+  motor_monitor.ia = current.a;
+  motor_monitor.ib = current.b;
+  motor_monitor.ic = current.c;
+
+  motor_monitor.id_ref = 0.0f;
+  motor_monitor.iq_ref = 0.0f;
+  motor_monitor.id_meas = 0.0f;
+  motor_monitor.iq_meas = 0.0f;
+
+  motor_monitor.vd_cmd = 0.0f;
+  motor_monitor.vq_cmd = 0.0f;
+
+  motor_monitor.duty_u = 0.0f;
+  motor_monitor.duty_v = 0.0f;
+  motor_monitor.duty_w = 0.0f;
+
+  adc_raw_scan.sample_count++;
+}
+
+void motorAdcRawScanGetStats(motor_adc_raw_scan_t *stats)
+{
+  if (stats == NULL)
+  {
+      return;
+  }
+
+  uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+
+  // ISR에서 갱신되는 전체 구조체 복사
+  *stats = adc_raw_scan;
+
+  // 모든 필드 초기화
+  adc_raw_scan = (motor_adc_raw_scan_t){0};
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+  for (uint32_t g = 0U; g < 2U; g++)
+  {
+    split_sample_count[g] = 0U;
+
+    for (uint32_t i = 0U; i < 3U; i++)
+    {
+      split_raw_min[g][i] = 0U;
+      split_raw_max[g][i] = 0U;
+      split_spike_count[g][i] = 0U;
+    }
+  }
+
+  adc_pwm_on_scan_done = false;
+  adc_pwm_on_scan_seen = false;
+
+#endif
+
+
+  __set_PRIMASK(primask);
+}
+
+
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+void motorAdcRawScanGetSplitStats(
+    uint16_t raw_min[2][3],
+    uint16_t raw_max[2][3],
+    uint32_t spike_count[2][3])
+{
+  uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+
+  for (uint32_t g = 0U; g < 2U; g++)
+  {
+    for (uint32_t i = 0U; i < 3U; i++)
+    {
+      raw_min[g][i] = split_raw_min[g][i];
+      raw_max[g][i] = split_raw_max[g][i];
+      spike_count[g][i] =
+          split_spike_count[g][i];
+    }
+  }
+
+  __set_PRIMASK(primask);
+}
+
+#endif
+
+
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+bool motorAdcPwmOnScanIsDone(void)
+{
+    return adc_pwm_on_scan_done;
+}
+
+#endif
+
+#endif
+
+
+
 bool motorInit(void)
 {
   bool ret = true;
@@ -351,6 +680,9 @@ void motorCurrentDiagStart(void)
     current_l_test_vd[i] = 0.0f;
     current_l_test_vq[i] = 0.0f;
     current_l_test_theta[i] = 0.0f;
+    current_l_test_hall_state[i] = 0U;
+    current_l_test_hall_sector[i] = -1;
+    current_l_test_hall_valid[i] = 0U;
   }
 
 #if CURRENT_ADC_NOISE_TEST_ENABLE
@@ -391,7 +723,6 @@ void motorCurrentDiagStart(void)
   // CPU Cycle Counter 활성화
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-  DWT->CYCCNT = 0U;
 
   // 진단 변수 초기화
   diag_first_isr_seen = false;
@@ -400,11 +731,9 @@ void motorCurrentDiagStart(void)
   diag_cnt_first_isr = 0U;
 
   // PWM Enable 직전 ADC 상태
-  diag_jeoc_before_output =
-      ((ADC1->SR & ADC_SR_JEOC) != 0U) ? 1U : 0U;
+  diag_jeoc_before_output = ((ADC1->SR & ADC_SR_JEOC) != 0U) ? 1U : 0U;
 
-  diag_irq_pending_before_output =
-      (uint32_t)NVIC_GetPendingIRQ(ADC_IRQn);
+  diag_irq_pending_before_output = (uint32_t)NVIC_GetPendingIRQ(ADC_IRQn);
 
   // PWM 출력 전환 직전 ADC Injected 레지스터 확인
   diag_raw_before_a = (uint16_t)ADC1->JDR1;
@@ -523,6 +852,29 @@ bool motorCurrentLTestGetSample(uint32_t index, float *id, float *iq, float *vd,
 
   return true;
 }
+
+#if CURRENT_ROTATION_TEST_ENABLE
+
+bool motorCurrentLTestGetHallSample(uint32_t index, uint8_t *hall_state, int8_t *hall_sector, uint8_t *hall_valid)
+{
+  if (index >= current_l_test_count)
+  {
+    return false;
+  }
+
+  if (hall_state != NULL)
+    *hall_state = current_l_test_hall_state[index];
+
+  if (hall_sector != NULL)
+    *hall_sector = current_l_test_hall_sector[index];
+
+  if (hall_valid != NULL)
+    *hall_valid = current_l_test_hall_valid[index];
+
+  return true;
+}
+
+#endif
 
 uint32_t motorCurrentNoiseGetCount(void)
 {
@@ -724,6 +1076,39 @@ void motorLowSpeedTask(void)
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
     (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
 
+
+#if CURRENT_ROTATION_TEST_ENABLE
+
+static bool motorRotationHallReady(void)
+{
+  uint8_t state = hallGetState();
+
+  if ((hallIsValid() == false) ||
+      (hallGetSectorIndex() < 0) ||
+      (state == 0U) ||
+      (state == 7U))
+  {
+    return false;
+  }
+
+  return true;
+}
+
+static void motorRotationDiagAbort(motor_fault_t fault)
+{
+  // ISR에서도 즉시 출력 차단
+  pwmDisableOutput();
+
+  motor_fault = fault;
+  motor_state = MOTOR_STATE_FAULT;
+
+  current_diag_active = false;
+  current_diag_done = false;
+}
+
+#endif
+
+
 static void motorNeutralPwmDiag(void)
 {
   float theta_e;
@@ -754,12 +1139,75 @@ static void motorNeutralPwmDiag(void)
 
     diag_output_cycle = DWT->CYCCNT;
 
+    #if CURRENT_ROTATION_TEST_ENABLE
+
+    // 1. Break Fault 확인
+    if ((pwmIsBreakFault() == true) ||
+        ((TIM1->SR & TIM_SR_BIF) != 0U))
+    {
+      motorRotationDiagAbort(MOTOR_FAULT_BKIN);
+      return;
+    }
+
+    // 2. Hall 입력 유효성 확인
+    if (motorRotationHallReady() == false)
+    {
+      motorRotationDiagAbort(MOTOR_FAULT_HALL_INVALID);
+      return;
+    }
+
+    #endif
+
+
+    // Neutral PWM ON 시험에서도 BKIN 상태 확인
+    if ((pwmIsBreakFault() == true) ||
+        ((TIM1->SR & TIM_SR_BIF) != 0U))
+    {
+        pwmDisableOutput();
+
+        motor_fault = MOTOR_FAULT_BKIN;
+        motor_state = MOTOR_STATE_FAULT;
+
+        current_diag_active = false;
+        current_diag_done = false;
+
+        return;
+    }
+
+    // 정상 상태일 때만 PWM 활성화
     diag_pwm_armed = true;
 
     pwmEnableOutput();
 
-    // 다음 ADC 콜백부터 Startup 전류 검사
     return;
+
+  }
+
+#endif
+
+#if (CURRENT_ADC_PWM_OFF_TEST_ENABLE == 0U) && \
+    (CURRENT_ADC_SEQUENCE_TEST_ENABLE == 0U)
+
+  bool break_fault =
+      (pwmIsBreakFault() == true) ||
+      ((TIM1->SR & TIM_SR_BIF) != 0U);
+
+  bool moe_disabled =
+      ((TIM1->BDTR & TIM_BDTR_MOE) == 0U);
+
+  if (break_fault || moe_disabled)
+  {
+      pwmDisableOutput();
+
+      motor_fault = break_fault ?
+          MOTOR_FAULT_BKIN : MOTOR_FAULT_INIT_FAIL;
+
+      motor_state = MOTOR_STATE_FAULT;
+
+      current_diag_active = false;
+      current_diag_done = false;
+
+      return;
   }
 
 #endif
@@ -774,6 +1222,26 @@ static void motorNeutralPwmDiag(void)
 
     diag_first_isr_seen = true;
   }
+
+  #if CURRENT_ROTATION_TEST_ENABLE
+
+  // 구동 도중 Break 발생 확인
+  if ((pwmIsBreakFault() == true) ||
+      ((TIM1->SR & TIM_SR_BIF) != 0U) ||
+      ((TIM1->BDTR & TIM_BDTR_MOE) == 0U))
+  {
+    motorRotationDiagAbort(MOTOR_FAULT_BKIN);
+    return;
+  }
+
+  // 구동 도중 Hall 신호 이상 확인
+  if (motorRotationHallReady() == false)
+  {
+    motorRotationDiagAbort(MOTOR_FAULT_HALL_INVALID);
+    return;
+  }
+
+  #endif
 
   /*
    * [수정]
@@ -974,23 +1442,39 @@ static void motorNeutralPwmDiag(void)
   }
 
 #if !CURRENT_ADC_NOISE_TEST_ENABLE
-  /*
-   * [L TEST]
-   * motorCurrentLoop()에서 이번 ISR의 Id/Iq 계산 완료.
-   *
-   * 첫 sample은 voltage step 직전/직후의 기준점 역할을 한다.
-   */
+
+#if CURRENT_ROTATION_TEST_ENABLE
+
+  // 20 ISR마다 1회 저장 = 1ms 간격
+  if (((current_diag_sample_count %
+        CURRENT_ROTATION_LOG_DIVIDER) == 0U) &&
+      (current_l_test_count < CURRENT_L_TEST_SAMPLE_COUNT))
+
+#else
+
+  // 기존 시험은 매 ISR 저장
   if (current_l_test_count < CURRENT_L_TEST_SAMPLE_COUNT)
+
+#endif
   {
     current_l_test_id[current_l_test_count] = motor_monitor.id_meas;
     current_l_test_iq[current_l_test_count] = motor_monitor.iq_meas;
     current_l_test_vd[current_l_test_count] = motor_monitor.vd_cmd;
     current_l_test_vq[current_l_test_count] = motor_monitor.vq_cmd;
     current_l_test_theta[current_l_test_count] = motor_monitor.theta_e;
+
+    #if CURRENT_ROTATION_TEST_ENABLE
+    current_l_test_hall_state[current_l_test_count] = hallGetState();
+    current_l_test_hall_sector[current_l_test_count] = hallGetSectorIndex();
+    current_l_test_hall_valid[current_l_test_count] = hallIsValid() ? 1U : 0U;
+    #endif
+
     current_l_test_count++;
   }
-#endif
-  current_diag_sample_count++;
+
+#endif  // !CURRENT_ADC_NOISE_TEST_ENABLE
+
+current_diag_sample_count++;
 
 #if (CURRENT_IQ_STEP_TEST_ENABLE == 1U)
 
@@ -1013,6 +1497,28 @@ static void motorNeutralPwmDiag(void)
   }
 
 #endif
+
+
+#if (CURRENT_ROTATION_TEST_ENABLE == 1U)
+
+// 10ms: Iq 0A -> +0.1A
+if (current_diag_sample_count ==
+    CURRENT_ROTATION_START_SAMPLE)
+  {
+    motorSetCurrentReference(
+        0.0f,
+        CURRENT_ROTATION_REF_A);
+  }
+
+// 90ms: Iq +0.1A -> 0A
+else if (current_diag_sample_count ==
+         CURRENT_ROTATION_END_SAMPLE)
+  {
+    motorSetCurrentReference(0.0f, 0.0f);
+  }
+
+#endif
+
 
 // ====================================================
 // OFF -> ON -> OFF ADC Sequence Test
@@ -1536,25 +2042,249 @@ static void motorOpenLoop(void)
 void motorControlUpdate(void)
 {
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
-#if CURRENT_NEUTRAL_DIAG_ENABLE == 0U
-  float theta_e;
-#endif
+  #if CURRENT_NEUTRAL_DIAG_ENABLE == 0U
+    float theta_e;
+  #endif
 
-  if (motor_state != MOTOR_STATE_CURRENT_LOOP)
-  {
+    if (motor_state != MOTOR_STATE_CURRENT_LOOP)
+    {
       return;
-  }
-#if CURRENT_NEUTRAL_DIAG_ENABLE == 1U
-  motorNeutralPwmDiag();
+    }
+
+
+#if CURRENT_ADC_RAW_SCAN_ENABLE == 1U
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+    // 이미 정상 종료한 경우에는 추가 샘플 기록 금지
+    if (adc_pwm_on_scan_done == true)
+    {
+        return;
+    }
+
+    // PWM 동작 중 BKIN 발생 여부 확인
+    if ((pwmIsBreakFault() == true) ||
+        ((TIM1->SR & TIM_SR_BIF) != 0U))
+    {
+        pwmDisableOutput();
+
+        motor_fault = MOTOR_FAULT_BKIN;
+        motor_state = MOTOR_STATE_FAULT;
+
+        adc_pwm_on_scan_done = true;
+        return;
+    }
+
+    // PWM이 아직 시작되지 않은 경우는 무시
+    if ((TIM1->BDTR & TIM_BDTR_MOE) == 0U)
+    {
+        // 기존에 PWM ON을 확인했다면 비정상 차단
+        if (adc_pwm_on_scan_seen == true)
+        {
+            pwmDisableOutput();
+
+            motor_fault = MOTOR_FAULT_INIT_FAIL;
+            motor_state = MOTOR_STATE_FAULT;
+
+            adc_pwm_on_scan_done = true;
+        }
+
+        return;
+    }
+
+    adc_pwm_on_scan_seen = true;
+
+    // 기존 Raw Min/Max, Spike Count,
+    // Spike Streak, OC Count 계산
+    motorAdcRawScanUpdate();
+
+    // 실제 PWM ON 시험에서는 관찰만 하지 않고
+    // 0.8A 초과 측정 즉시 출력 차단
+    if ((fabsf(motor_monitor.ia) >=
+         CURRENT_ADC_SCAN_OC_LIMIT_A) ||
+        (fabsf(motor_monitor.ib) >=
+         CURRENT_ADC_SCAN_OC_LIMIT_A) ||
+        (fabsf(motor_monitor.ic) >=
+         CURRENT_ADC_SCAN_OC_LIMIT_A))
+    {
+        pwmDisableOutput();
+
+        motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
+        motor_state = MOTOR_STATE_FAULT;
+
+        adc_pwm_on_scan_done = true;
+        return;
+    }
+
+    // 지정한 샘플 수에서 PWM 자동 차단
+    if (adc_raw_scan.sample_count >=
+        ((CURRENT_ADC_PWM_ON_SCAN_MS * 1000U) /
+         CURRENT_LOOP_PERIOD_US))
+    {
+        pwmDisableOutput();
+
+        adc_pwm_on_scan_done = true;
+        return;
+    }
+
 #else
-#if _USE_HALL_SENSOR
-  theta_e = hallGetElectricalAngle();
-#elif _USE_ENCODER
-  theta_e = encoderGetElectricalAngle();
+
+    // 기존 PWM OFF Raw Scan
+    if ((TIM1->BDTR & TIM_BDTR_MOE) != 0U)
+    {
+        pwmDisableOutput();
+        motorSetFault(MOTOR_FAULT_INIT_FAIL);
+        return;
+    }
+
+    motorAdcRawScanUpdate();
+
 #endif
 
-  motorCurrentLoop(current_id_ref, current_iq_ref, theta_e);
+
+    #elif CURRENT_FOC_BENCH_ENABLE == 1U
+
+        // 기존 벤치마크 코드 그대로 유지U
+
+  // MOE OFF 유지: 실제 모터 구동 금지
+  if ((TIM1->BDTR & TIM_BDTR_MOE) != 0U)
+  {
+    pwmDisableOutput();
+    motorSetFault(MOTOR_FAULT_INIT_FAIL);
+    return;
+  }
+
+  // FOC + 진단 부하 전체 실행 시간 측정 시작
+  uint32_t start_cycles = DWT->CYCCNT;
+
+    #if _USE_HALL_SENSOR
+
+  float theta_e = hallGetElectricalAngle();
+
+#elif _USE_ENCODER
+
+  float theta_e = encoderGetElectricalAngle();
+
+#else
+
+  #error "FOC benchmark requires rotor angle source"
+
 #endif
+
+  // 기존 전류 제어 연산 (지령 0A, MOE OFF)
+  motorCurrentLoop(0.0f, 0.0f, theta_e);
+
+  // 과전류 등으로 Fault가 발생했다면 중단
+  if (motor_state == MOTOR_STATE_FAULT)
+  {
+    return;
+  }
+
+#if CURRENT_FOC_BENCH_DIAG_LOAD == 1U
+
+  // 실제 회전 진단과 유사한 Hall/BKIN 검사 부하
+  bool break_ok =
+      (pwmIsBreakFault() == false) &&
+      ((TIM1->SR & TIM_SR_BIF) == 0U);
+
+  uint8_t hall_state = hallGetState();
+  int8_t hall_sector = hallGetSectorIndex();
+  bool hall_valid = hallIsValid();
+
+  if ((!break_ok) ||
+      (!hall_valid) ||
+      (hall_sector < 0) ||
+      (hall_state == 0U) ||
+      (hall_state == 7U))
+  {
+    // 센서/Break 이상 시 PWM 차단 및 Fault
+    pwmDisableOutput();
+
+    if (!break_ok)
+      motorSetFault(MOTOR_FAULT_BKIN);
+    else
+      motorSetFault(MOTOR_FAULT_HALL_INVALID);
+
+    return;
+  }
+
+  // 진단용 3상 전류 Min/Max 갱신
+  float ia = motor_monitor.ia;
+  float ib = motor_monitor.ib;
+  float ic = motor_monitor.ic;
+
+  if (foc_bench_diag_index == 0U)
+  {
+    foc_bench_ia_min = foc_bench_ia_max = ia;
+    foc_bench_ib_min = foc_bench_ib_max = ib;
+    foc_bench_ic_min = foc_bench_ic_max = ic;
+  }
+  else
+  {
+    if (ia < foc_bench_ia_min) foc_bench_ia_min = ia;
+    if (ia > foc_bench_ia_max) foc_bench_ia_max = ia;
+
+    if (ib < foc_bench_ib_min) foc_bench_ib_min = ib;
+    if (ib > foc_bench_ib_max) foc_bench_ib_max = ib;
+
+    if (ic < foc_bench_ic_min) foc_bench_ic_min = ic;
+    if (ic > foc_bench_ic_max) foc_bench_ic_max = ic;
+  }
+
+  // 기존 회전 진단처럼 200 ISR마다 RAM에 저장
+  if ((foc_bench_diag_index %
+       CURRENT_ROTATION_LOG_DIVIDER) == 0U)
+  {
+      uint32_t index =
+          (foc_bench_diag_index /
+           CURRENT_ROTATION_LOG_DIVIDER)
+          % CURRENT_L_TEST_SAMPLE_COUNT;
+
+      current_l_test_id[index] = motor_monitor.id_meas;
+      current_l_test_iq[index] = motor_monitor.iq_meas;
+      current_l_test_vd[index] = motor_monitor.vd_cmd;
+      current_l_test_vq[index] = motor_monitor.vq_cmd;
+      current_l_test_theta[index] = motor_monitor.theta_e;
+
+      current_l_test_hall_state[index] = hall_state;
+      current_l_test_hall_sector[index] = hall_sector;
+      current_l_test_hall_valid[index] = hall_valid ? 1U : 0U;
+
+      if (current_l_test_count < CURRENT_L_TEST_SAMPLE_COUNT)
+      {
+          current_l_test_count++;
+      }
+  }
+
+  foc_bench_diag_index++;
+
+    #endif // CURRENT_FOC_BENCH_DIAG_LOAD
+
+  uint32_t elapsed_cycles = DWT->CYCCNT - start_cycles;
+
+  foc_bench_count++;
+  foc_bench_total_cycles += elapsed_cycles;
+
+  if (elapsed_cycles > foc_bench_max_cycles)
+  {
+    foc_bench_max_cycles = elapsed_cycles;
+  }
+
+  #elif CURRENT_NEUTRAL_DIAG_ENABLE == 1U
+
+
+    motorNeutralPwmDiag();
+
+  #else
+
+    #if _USE_HALL_SENSOR
+      theta_e = hallGetElectricalAngle();
+    #elif _USE_ENCODER
+      theta_e = encoderGetElectricalAngle();
+    #endif
+
+    motorCurrentLoop(current_id_ref, current_iq_ref, theta_e);
+  #endif
 
 #elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
   float theta_e;
@@ -1564,13 +2294,13 @@ void motorControlUpdate(void)
       return;
   }
 
-#if _USE_HALL_SENSOR
-  theta_e = hallGetElectricalAngle();
-#elif _USE_ENCODER
-  theta_e = encoderGetElectricalAngle();
-#else
-#error "HALL SENSOR / ENCODER ERROR"
-#endif
+  #if _USE_HALL_SENSOR
+    theta_e = hallGetElectricalAngle();
+  #elif _USE_ENCODER
+    theta_e = encoderGetElectricalAngle();
+  #else
+  #error "HALL SENSOR / ENCODER ERROR"
+  #endif
 
   speed_loop_divider++;
 
@@ -1708,6 +2438,38 @@ motor_fault_t motorGetFault(void)
 {
   return motor_fault;
 }
+
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (CURRENT_FOC_BENCH_ENABLE == 1U)
+
+void motorFocBenchGetStats( uint32_t *count, uint32_t *total_cycles, uint32_t *max_cycles)
+{
+    uint32_t primask = __get_PRIMASK();
+
+    __disable_irq();
+
+    if (count != NULL)
+        *count = foc_bench_count;
+
+    if (total_cycles != NULL)
+        *total_cycles = foc_bench_total_cycles;
+
+    if (max_cycles != NULL)
+        *max_cycles = foc_bench_max_cycles;
+
+    // 다음 측정 구간을 위해 초기화
+    foc_bench_count = 0U;
+    foc_bench_total_cycles = 0U;
+    foc_bench_max_cycles = 0U;
+
+    if (primask == 0U)
+    {
+        __enable_irq();
+    }
+}
+
+#endif
+
 
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (_USE_HALL_OFFSET_CALIBRATION)
 

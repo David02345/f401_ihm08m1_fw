@@ -33,6 +33,8 @@ typedef enum
   MOTOR_FAULT_OPEN_LOOP_FAIL   = 0x06U,
   MOTOR_FAULT_BKIN             = 0x07U,
   MOTOR_FAULT_SW_OVERCURRENT   = 0x08U,
+  MOTOR_FAULT_HALL_INVALID     = 0x09U,   // Hall 입력이 유효하지 않을 때
+  MOTOR_FAULT_DIAG_TIMEOUT     = 0x0AU,   // ADC ISR 진단이 정해진 시간에 끝나지 않을 때
 } motor_fault_t;
 
 

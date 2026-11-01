@@ -255,6 +255,7 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
   {
     return;
   }
+
   adc_curr_raw.a = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_1);
   adc_curr_raw.b = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_2);
   adc_curr_raw.c = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_3);

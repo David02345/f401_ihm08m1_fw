@@ -30,6 +30,14 @@ void motorClearFault(void);
 bool motorGetMonitor(motor_monitor_t *monitor);
 
 void motorSetCurrentReference(float id_ref, float iq_ref);
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (CURRENT_FOC_BENCH_ENABLE == 1U)
+
+void motorFocBenchGetStats(
+    uint32_t *count,
+    uint32_t *total_cycles,
+    uint32_t *max_cycles);
+
+#endif
 
 motor_state_t motorGetState(void);
 motor_fault_t motorGetFault(void);
@@ -59,6 +67,64 @@ typedef struct
 
 } motor_diag_timing_t;
 
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (CURRENT_ADC_RAW_SCAN_ENABLE == 1U)
+
+
+typedef struct
+{
+    uint32_t sample_count;
+
+    uint16_t raw_min[3];
+    uint16_t raw_max[3];
+
+    float current_min[3];
+    float current_max[3];
+
+    uint32_t spike_count[3];
+
+    uint32_t first_spike_sample;
+    uint16_t first_spike_raw[3];
+
+    // 새로 추가: 연속 스파이크 통계
+    uint32_t spike_streak[3];
+    uint32_t spike_max_streak[3];
+    uint32_t spike_adjacent_pairs[3];
+
+    // 새로 추가: 0.8A 초과 측정값 통계
+    uint32_t oc_sample_count[3];
+    uint32_t oc_streak[3];
+    uint32_t oc_max_streak[3];
+
+    uint32_t first_oc_sample;
+    uint16_t first_oc_raw[3];
+
+} motor_adc_raw_scan_t;
+
+
+void motorAdcRawScanGetStats(motor_adc_raw_scan_t *stats);
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_ADC_RAW_SCAN_ENABLE == 1U)
+
+void motorAdcRawScanGetSplitStats(
+    uint16_t raw_min[2][3],
+    uint16_t raw_max[2][3],
+    uint32_t spike_count[2][3]);
+
+#endif
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_ADC_RAW_SCAN_ENABLE == 1U) && \
+    (CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U)
+
+bool motorAdcPwmOnScanIsDone(void);
+
+#endif
+
+#endif
+
+
 void motorCurrentDiagGetTiming(motor_diag_timing_t *timing);
 uint32_t motorCurrentDiagGetMoeAfterOff(void);
 void motorCurrentDiagStart(void);
@@ -74,6 +140,9 @@ void motorCurrentDiagGetCurrentMinMax(motor_abc_f_t *i_min, motor_abc_f_t *i_max
 
 uint32_t motorCurrentLTestGetCount(void);
 bool motorCurrentLTestGetSample(uint32_t index, float *id, float *iq, float *vd, float *vq, float *theta_e);
+#if CURRENT_ROTATION_TEST_ENABLE
+bool motorCurrentLTestGetHallSample(uint32_t index, uint8_t *hall_state, int8_t *hall_sector, uint8_t *hall_valid);
+#endif
 // 분리 예정
 
 

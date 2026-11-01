@@ -168,10 +168,36 @@
 #define CURRENT_ADC_NOISE_TEST_ENABLE     0U
 #define CURRENT_ADC_PWM_OFF_TEST_ENABLE   0U
 #define CURRENT_ADC_SEQUENCE_TEST_ENABLE  0U
+#define CURRENT_ADC_RAW_SCAN_ENABLE       0U  // ADC Raw 스파이크 검사 (MOE OFF, FOC OFF)
+#define CURRENT_ADC_RAW_SPIKE_COUNTS      16U // Offset에서 16 Count 이상 벗어나면 이상 샘플로 기록
+
+#define CURRENT_ADC_UART_SILENT_TEST      0U  // UART OFF 상태에서 10초 동안 Raw Scan 실행
+#define CURRENT_ADC_UART_SILENT_MS        CURRENT_ADC_PWM_ON_SCAN_MS
+// A-3: 측정 중 500ms마다 UART 송신
+// 0 = A-2, 1 = A-3
+#define CURRENT_ADC_TEST_UART_ENABLE      0U
+#define CURRENT_ADC_SCAN_OC_LIMIT_A       0.8f
+// Raw Scan 중 PWM ON 허용
+#define CURRENT_ADC_PWM_ON_SCAN_ENABLE    0U
+// 처음에는 100ms, 이후 1000ms -> 10000ms
+#define CURRENT_ADC_PWM_ON_SCAN_MS        100U
+
+
 // 신규 Iq Step Response 시험
-#define CURRENT_IQ_STEP_TEST_ENABLE       1U
+#define CURRENT_IQ_STEP_TEST_ENABLE       0U
 #define CURRENT_IQ_STEP_STAGE_SAMPLES     100U
 #define CURRENT_IQ_STEP_REF_A             0.1f
+
+// 신규 Hall FOC 회전 진단
+#define CURRENT_ROTATION_TEST_ENABLE      0U
+#define CURRENT_ROTATION_REF_A            0.1f
+#define CURRENT_ROTATION_START_SAMPLE     2000U
+#define CURRENT_ROTATION_END_SAMPLE       42000U
+#define CURRENT_ROTATION_LOG_DIVIDER      200U
+
+#define CURRENT_FOC_BENCH_ENABLE          0U // PWM 출력 없이 FOC 계산 시간 측정
+#define CURRENT_FOC_BENCH_DIAG_LOAD       0U // FOC 벤치마크에 Hall 검사 및 로그 저장 부하 추가
+
 
 #if (CURRENT_IQ_STEP_TEST_ENABLE == 1U) && \
     ((CURRENT_NEUTRAL_DIAG_ENABLE != 1U) || \
@@ -180,17 +206,22 @@
      (CURRENT_ADC_PWM_OFF_TEST_ENABLE != 0U))
 #error "Iq step test requires current PI diagnostic mode"
 #endif
-#if (CURRENT_ADC_SEQUENCE_TEST_ENABLE == 1U)
 
-#define CURRENT_LOOP_TEST_TIME_MS 20U
+#if (CURRENT_ROTATION_TEST_ENABLE == 1U)
 
-#define CURRENT_SEQUENCE_OFF1_SAMPLES 100U
-#define CURRENT_SEQUENCE_ON_SAMPLES   200U
-#define CURRENT_SEQUENCE_OFF2_SAMPLES 100U
+#define CURRENT_LOOP_TEST_TIME_MS         2200U
+
+#elif (CURRENT_ADC_SEQUENCE_TEST_ENABLE == 1U)
+
+#define CURRENT_LOOP_TEST_TIME_MS         20U
 
 #elif (CURRENT_IQ_STEP_TEST_ENABLE == 1U)
 
-#define CURRENT_LOOP_TEST_TIME_MS 15U
+#define CURRENT_LOOP_TEST_TIME_MS         15U
+
+#elif (CURRENT_ADC_NOISE_TEST_ENABLE == 1U)
+
+#define CURRENT_LOOP_TEST_TIME_MS         10U
 
 #else
 
@@ -200,8 +231,6 @@
 #define CURRENT_LOOP_PERIOD_US            50U
 
 #define CURRENT_LOOP_TEST_SAMPLE_COUNT    ((CURRENT_LOOP_TEST_TIME_MS * 1000U) / CURRENT_LOOP_PERIOD_US)
-#define CURRENT_NOISE_TEST_SAMPLE_COUNT   CURRENT_LOOP_TEST_SAMPLE_COUNT
-
 
 #define CURRENT_TEST_OC_LIMIT_A           0.8f
 
@@ -210,10 +239,52 @@
 
 #define CURRENT_NEUTRAL_DUTY              0.5f
 
+#if (CURRENT_ROTATION_TEST_ENABLE == 1U)
+
+#define CURRENT_L_TEST_SAMPLE_COUNT ((CURRENT_LOOP_TEST_SAMPLE_COUNT \
+      + CURRENT_ROTATION_LOG_DIVIDER - 1U) / CURRENT_ROTATION_LOG_DIVIDER)
+
+// Noise Test 비활성 상태에서 큰 미사용 배열 할당 방지
+#define CURRENT_NOISE_TEST_SAMPLE_COUNT   1U
+
+#else
+
 #define CURRENT_L_TEST_SAMPLE_COUNT       CURRENT_LOOP_TEST_SAMPLE_COUNT
 
-// 마지막 20 samples = 마지막 1 ms 평균
+#define CURRENT_NOISE_TEST_SAMPLE_COUNT   CURRENT_LOOP_TEST_SAMPLE_COUNT
+
+#endif
+
+#if (CURRENT_ROTATION_TEST_ENABLE == 1U) && \
+    ((CURRENT_NEUTRAL_DIAG_ENABLE != 1U) || \
+     (CURRENT_ADC_NOISE_TEST_ENABLE != 0U) || \
+     (CURRENT_ADC_PWM_OFF_TEST_ENABLE != 0U) || \
+     (CURRENT_ADC_SEQUENCE_TEST_ENABLE != 0U) || \
+     (CURRENT_IQ_STEP_TEST_ENABLE != 0U))
+#error "Rotation test mode configuration error"
+#endif
+
+#if (CURRENT_ROTATION_TEST_ENABLE == 1U) && \
+    (CURRENT_ROTATION_END_SAMPLE >= CURRENT_LOOP_TEST_SAMPLE_COUNT)
+#error "Rotation end must precede test completion"
+
+#endif
+
+#if (CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U) && \
+    ((CURRENT_ADC_RAW_SCAN_ENABLE != 1U) || \
+     (CURRENT_ADC_UART_SILENT_TEST != 1U) || \
+     (CURRENT_ADC_NOISE_TEST_ENABLE != 0U) || \
+     (CURRENT_ROTATION_TEST_ENABLE != 0U) || \
+     (CURRENT_FOC_BENCH_ENABLE != 0U))
+#error "PWM ON scan requires exclusive Raw Scan mode"
+#endif
+
+#if CURRENT_ROTATION_TEST_ENABLE
+#define CURRENT_DIAG_TAIL_SAMPLES         10U
+#else
 #define CURRENT_DIAG_TAIL_SAMPLES         20U
+#endif
+
 /**
   * @}
   */

@@ -107,7 +107,33 @@ void apMain(void)
   bool current_test_stopped = false;
   bool current_test_started = false;
 
+  #if CURRENT_ROTATION_TEST_ENABLE
+  uint32_t current_test_start_ms = 0U;
+  #endif
+
+  #if (CURRENT_ADC_RAW_SCAN_ENABLE == 1U) && (CURRENT_ADC_UART_SILENT_TEST == 1U)
+
+  uint32_t silent_start_ms = 0U;
+  uint32_t silent_adc_start = 0U;
+  uint32_t silent_adc_end = 0U;
+  uint32_t silent_elapsed_ms = 0U;
+
+  motor_adc_raw_scan_t silent_scan = {0};
+  motor_state_t silent_state;
+  motor_fault_t silent_fault;
+
+    #if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+    uint16_t split_min[2][3] = {{0}};
+    uint16_t split_max[2][3] = {{0}};
+    uint32_t split_spike[2][3] = {{0}};
+
+    #endif
+
+  #endif
+
 #endif
+
 
 
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
@@ -115,17 +141,17 @@ void apMain(void)
   uint32_t open_loop_start = 0U;
   bool open_loop_stopped = false;
 
-#if _USE_HALL_OFFSET_CALIBRATION
+  #if _USE_HALL_OFFSET_CALIBRATION
 
-  const uint32_t open_loop_test_time_ms =
-      HALL_CAL_TEST_TIME_MS;
+    const uint32_t open_loop_test_time_ms =
+        HALL_CAL_TEST_TIME_MS;
 
-#else
+  #else
 
-  const uint32_t open_loop_test_time_ms =
-      OPEN_LOOP_TEST_TIME_MS;
+    const uint32_t open_loop_test_time_ms =
+        OPEN_LOOP_TEST_TIME_MS;
 
-#endif
+  #endif
 #endif
 
 
@@ -138,40 +164,70 @@ void apMain(void)
 
 #endif
 
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+      (CURRENT_FOC_BENCH_ENABLE == 1U)
+
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+  // CYCCNT는 초기화하지 않음 (Hall 시간 측정과 공유)
+
+#endif
 
   delay(1000);
 
   motorStart();
   motorSetCurrentReference(0.0f, 0.0f);
 
+#if (CURRENT_FOC_BENCH_ENABLE == 1U) || (CURRENT_ADC_RAW_SCAN_ENABLE == 1U)
+
+  pwmDisableOutput();
+
+#endif
 
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
 
   if (motorGetState() == MOTOR_STATE_CURRENT_LOOP)
   {
-#if CURRENT_ADC_NOISE_TEST_ENABLE
+  #if CURRENT_ADC_NOISE_TEST_ENABLE
 
     motorSetCurrentReference(0.0f, 0.0f);
 
-#elif CURRENT_IQ_STEP_TEST_ENABLE
+  #elif CURRENT_IQ_STEP_TEST_ENABLE
 
-    // Step Test는 0mA에서 시작
+      // Step Test는 0mA에서 시작
     motorSetCurrentReference(0.0f, 0.0f);
 
-#else
+  #elif CURRENT_ROTATION_TEST_ENABLE
 
-    // 기존 단일 지령 전류 PI 시험
-    motorSetCurrentReference(0.0f, 0.1f);
+  // PWM 활성화 후 최초 10ms는 0A
+    motorSetCurrentReference(0.0f, 0.0f);
+  #else
 
-#endif
+  #if CURRENT_ADC_RAW_SCAN_ENABLE == 1U
+    motorSetCurrentReference(0.0f, 0.0f);
+  #else
+    motorSetCurrentReference(0.0f, 0.0f);
+  #endif
 
-#if !_USE_HALL_TEST_ONLY
+  #endif
+
+
+  #if !_USE_HALL_TEST_ONLY
+
+    // ADC Noise Test 또는 기존 진단이 활성화된 경우
+    // 시작 조건은 Current Loop 상태에서만 충족
+    #if (CURRENT_NEUTRAL_DIAG_ENABLE == 1U) && \
+        (CURRENT_ADC_RAW_SCAN_ENABLE == 0U) && \
+        (CURRENT_FOC_BENCH_ENABLE == 0U)
 
     current_test_started = true;
-
     motorCurrentDiagStart();
 
-#endif
+    #endif
+
+  #endif
+
   }
 
 
@@ -197,6 +253,437 @@ void apMain(void)
   prev_adc_count = adcGetCurrentUpdateCount();
 
 
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_ADC_RAW_SCAN_ENABLE == 1U) && \
+    (CURRENT_ADC_UART_SILENT_TEST == 1U)
+
+
+  // 이전 Raw Scan 통계 초기화
+  motorAdcRawScanGetStats(&silent_scan);
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+  // 모터 분리 상태에서만 시험
+  // U/V/W 50% Neutral PWM 설정
+  pwmDisableOutput();
+  pwmSetDuty(0.5f, 0.5f, 0.5f);
+
+  // PWM 활성화 이전 보호 조건 확인
+  if ((motorGetState() != MOTOR_STATE_CURRENT_LOOP) ||
+      (motorGetFault() != MOTOR_FAULT_NONE))
+  {
+      motorSetFault(MOTOR_FAULT_INIT_FAIL);
+  }
+  else if ((pwmIsBreakFault() == true) ||
+           ((TIM1->SR & TIM_SR_BIF) != 0U))
+  {
+      motorSetFault(MOTOR_FAULT_BKIN);
+  }
+  else
+  {
+      pwmEnableOutput();
+
+      // 명령 후 MOE 실제 활성화 확인
+      if ((TIM1->BDTR & TIM_BDTR_MOE) == 0U)
+      {
+          motorSetFault(MOTOR_FAULT_INIT_FAIL);
+      }
+  }
+
+#endif
+
+  silent_adc_start = adcGetCurrentUpdateCount();
+  silent_start_ms = millis();
+
+
+  uint32_t last_uart_ms = silent_start_ms;
+  uint32_t uart_print_count = 0U;
+
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+    // PWM ON: ISR의 완료 플래그 또는 Fault로 종료
+    // 시간 제한은 while 내부에서 별도로 감시
+    while (1)
+
+#else
+
+    // PWM OFF: 기존 시간 기준 Raw Scan
+    while ((uint32_t)(millis() - silent_start_ms)
+           < CURRENT_ADC_UART_SILENT_MS)
+
+#endif
+  {
+    uint32_t now = millis();
+
+    // 기존과 동일하게 10ms마다 실행
+    if ((uint32_t)(now - pre_time_slow) >= 10U)
+    {
+        pre_time_slow = now;
+        motorLowSpeedTask();
+    }
+
+    // Fault 확인
+    if (motorGetState() != MOTOR_STATE_CURRENT_LOOP)
+    {
+        break;
+    }
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+      // ADC ISR이 멈추더라도 시험 시간이 무한정
+      // 연장되지 않도록 메인 루프에서 별도로 감시
+      if ((uint32_t)(millis() - silent_start_ms) >
+          (CURRENT_ADC_PWM_ON_SCAN_MS + 20U))
+      {
+          pwmDisableOutput();
+          motorSetFault(MOTOR_FAULT_DIAG_TIMEOUT);
+          break;
+      }
+
+#endif
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+    // ISR이 지정된 샘플 수에서 PWM을 차단하면 종료
+    if (motorAdcPwmOnScanIsDone() == true)
+    {
+        break;
+    }
+
+#endif
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 0U
+
+    // 기존 PWM OFF Raw Scan에서는 MOE OFF 유지
+    if ((TIM1->BDTR & TIM_BDTR_MOE) != 0U)
+    {
+        motorSetFault(MOTOR_FAULT_INIT_FAIL);
+        break;
+    }
+
+#else
+
+    // PWM ON 시험 중 예상치 않은 출력 차단 감지
+    if ((TIM1->BDTR & TIM_BDTR_MOE) == 0U)
+    {
+        if (motorAdcPwmOnScanIsDone() == false)
+        {
+            motorSetFault(MOTOR_FAULT_INIT_FAIL);
+        }
+
+        break;
+    }
+
+#endif
+
+
+    #if CURRENT_ADC_TEST_UART_ENABLE == 1U
+
+        // 500ms마다 UART 송신
+        if ((uint32_t)(now - last_uart_ms) >= 500U)
+        {
+            last_uart_ms = now;
+
+            motor_monitor_t mon = {0};
+            motor_abc_u16_t raw = {0};
+            motor_abc_f_t offset = {0};
+
+            uint32_t count = adcGetCurrentUpdateCount();
+
+            motorGetMonitor(&mon);
+            adcGetCurrentRaw(&raw);
+            adcGetCurrentOffset(&offset);
+
+            uartPrintf(_DEF_UART1,
+                "\r\nADC Count : %lu\r\n",
+                (unsigned long)count);
+
+            uartPrintf(_DEF_UART1,
+                "Ia/Ib/Ic : %ld / %ld / %ld mA\r\n",
+                (long)(mon.ia * 1000.0f),
+                (long)(mon.ib * 1000.0f),
+                (long)(mon.ic * 1000.0f));
+
+            uartPrintf(_DEF_UART1,
+                "Current Raw : %u / %u / %u\r\n",
+                (unsigned int)raw.a,
+                (unsigned int)raw.b,
+                (unsigned int)raw.c);
+
+            uartPrintf(_DEF_UART1,
+                "Current Off : %ld / %ld / %ld\r\n",
+                (long)offset.a,
+                (long)offset.b,
+                (long)offset.c);
+
+            uartPrintf(_DEF_UART1,
+                "State : %d, Fault : %d, MOE : %u\r\n",
+                (int)motorGetState(),
+                (int)motorGetFault(),
+                (unsigned int)
+                    ((TIM1->BDTR & TIM_BDTR_MOE) != 0U));
+
+            uart_print_count++;
+        }
+
+    #endif
+    }
+
+
+    // 통계 확보 및 측정 종료
+    // 두 함수 호출 사이에는 소수의 ADC 샘플 차이가 날 수 있음
+
+
+    silent_state = motorGetState();
+    silent_fault = motorGetFault();
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+    // Fault 없이 목표 샘플에 도달했는지 검사
+    if ((silent_state == MOTOR_STATE_CURRENT_LOOP) &&
+        (silent_fault == MOTOR_FAULT_NONE) &&
+        ((motorAdcPwmOnScanIsDone() == false) ||
+         ((TIM1->BDTR & TIM_BDTR_MOE) != 0U)))
+    {
+        motorSetFault(MOTOR_FAULT_DIAG_TIMEOUT);
+
+        silent_state = motorGetState();
+        silent_fault = motorGetFault();
+    }
+
+#endif
+
+    // UART 출력 전에 ADC와 PWM 정지
+    // Fault 상태는 보존
+    if (silent_state == MOTOR_STATE_CURRENT_LOOP)
+    {
+        motorStop();
+    }
+    else if (silent_state == MOTOR_STATE_FAULT)
+    {
+        // 기존 Fault 원인은 유지
+        // 출력과 ADC/타이머를 명시적으로 정지
+        pwmDisableOutput();
+        adcInjectedStop();
+        pwmStop();
+    }
+    else
+    {
+        pwmDisableOutput();
+        adcInjectedStop();
+        pwmStop();
+    }
+
+    silent_adc_end = adcGetCurrentUpdateCount();
+    silent_elapsed_ms = millis() - silent_start_ms;
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+    motorAdcRawScanGetSplitStats(split_min, split_max, split_spike);
+
+#endif
+
+    motorAdcRawScanGetStats(&silent_scan);
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+    const uint32_t expected_samples =
+        (CURRENT_ADC_PWM_ON_SCAN_MS * 1000U) /
+        CURRENT_LOOP_PERIOD_US;
+
+    bool scan_success =
+        (silent_fault == MOTOR_FAULT_NONE) &&
+        (silent_state == MOTOR_STATE_CURRENT_LOOP) &&
+        (silent_scan.sample_count == expected_samples) &&
+        ((TIM1->BDTR & TIM_BDTR_MOE) == 0U);
+
+#endif
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+    uartPrintf(_DEF_UART1,
+        "\r\n===== PWM ON RAW SCAN RESULT =====\r\n");
+
+    uartPrintf(_DEF_UART1,
+        "RESULT : %s\r\n",
+        scan_success ? "COMPLETE" : "FAILED");
+
+    uartPrintf(_DEF_UART1,
+        "Expected Samples : %lu\r\n",
+        (unsigned long)expected_samples);
+
+#endif
+
+    // UART 출력은 여기부터 시작
+    uartPrintf(_DEF_UART1,
+        "\r\n===== ADC UART SILENT TEST =====\r\n");
+
+    uartPrintf(_DEF_UART1,
+        "Elapsed ms : %lu\r\n",
+        (unsigned long)silent_elapsed_ms);
+
+    uartPrintf(_DEF_UART1,
+        "Periodic UART Prints : %lu\r\n",
+        (unsigned long)uart_print_count);
+
+    uartPrintf(_DEF_UART1,
+        "ADC Count Diff : %lu\r\n",
+        (unsigned long)(silent_adc_end - silent_adc_start));
+
+    uartPrintf(_DEF_UART1,
+        "SCAN Samples : %lu\r\n",
+        (unsigned long)silent_scan.sample_count);
+
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+    const char *group_name[2] =
+    {
+        "STARTUP (first 4 samples)",
+        "STEADY (remaining samples)"
+    };
+
+    uartPrintf(_DEF_UART1,
+        "\r\n===== STARTUP / STEADY COMPARISON =====\r\n");
+
+    for (uint32_t g = 0U; g < 2U; g++)
+    {
+        uartPrintf(_DEF_UART1,
+            "%s\r\n", group_name[g]);
+
+        uartPrintf(_DEF_UART1,
+            "Raw Min A/B/C : %u / %u / %u\r\n",
+            split_min[g][0],
+            split_min[g][1],
+            split_min[g][2]);
+
+        uartPrintf(_DEF_UART1,
+            "Raw Max A/B/C : %u / %u / %u\r\n",
+            split_max[g][0],
+            split_max[g][1],
+            split_max[g][2]);
+
+        uartPrintf(_DEF_UART1,
+            "Spike Count A/B/C : %lu / %lu / %lu\r\n",
+            (unsigned long)split_spike[g][0],
+            (unsigned long)split_spike[g][1],
+            (unsigned long)split_spike[g][2]);
+    }
+
+    uartPrintf(_DEF_UART1,
+        "=======================================\r\n");
+
+#endif
+
+#if CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U
+
+    uartPrintf(_DEF_UART1,
+        "PWM ON Scan Target : %lu ms\r\n",
+        (unsigned long)CURRENT_ADC_PWM_ON_SCAN_MS);
+
+#endif
+
+    uartPrintf(_DEF_UART1,
+        "Raw Min A/B/C : %u / %u / %u\r\n",
+        (unsigned int)silent_scan.raw_min[0],
+        (unsigned int)silent_scan.raw_min[1],
+        (unsigned int)silent_scan.raw_min[2]);
+
+    uartPrintf(_DEF_UART1,
+        "Raw Max A/B/C : %u / %u / %u\r\n",
+        (unsigned int)silent_scan.raw_max[0],
+        (unsigned int)silent_scan.raw_max[1],
+        (unsigned int)silent_scan.raw_max[2]);
+
+    uartPrintf(_DEF_UART1,
+        "Ia Min/Max : %ld / %ld mA\r\n",
+        (long)(silent_scan.current_min[0] * 1000.0f),
+        (long)(silent_scan.current_max[0] * 1000.0f));
+
+    uartPrintf(_DEF_UART1,
+        "Ib Min/Max : %ld / %ld mA\r\n",
+        (long)(silent_scan.current_min[1] * 1000.0f),
+        (long)(silent_scan.current_max[1] * 1000.0f));
+
+    uartPrintf(_DEF_UART1,
+        "Ic Min/Max : %ld / %ld mA\r\n",
+        (long)(silent_scan.current_min[2] * 1000.0f),
+        (long)(silent_scan.current_max[2] * 1000.0f));
+
+    uartPrintf(_DEF_UART1,
+        "Spike Count A/B/C : %lu / %lu / %lu\r\n",
+        (unsigned long)silent_scan.spike_count[0],
+        (unsigned long)silent_scan.spike_count[1],
+        (unsigned long)silent_scan.spike_count[2]);
+
+
+    uartPrintf(_DEF_UART1,
+        "Max Spike Streak A/B/C : %lu / %lu / %lu\r\n",
+        (unsigned long)silent_scan.spike_max_streak[0],
+        (unsigned long)silent_scan.spike_max_streak[1],
+        (unsigned long)silent_scan.spike_max_streak[2]);
+
+    uartPrintf(_DEF_UART1,
+        "Spike Adjacent Pairs A/B/C : %lu / %lu / %lu\r\n",
+        (unsigned long)silent_scan.spike_adjacent_pairs[0],
+        (unsigned long)silent_scan.spike_adjacent_pairs[1],
+        (unsigned long)silent_scan.spike_adjacent_pairs[2]);
+
+    uartPrintf(_DEF_UART1,
+        "OC Samples A/B/C : %lu / %lu / %lu\r\n",
+        (unsigned long)silent_scan.oc_sample_count[0],
+        (unsigned long)silent_scan.oc_sample_count[1],
+        (unsigned long)silent_scan.oc_sample_count[2]);
+
+    uartPrintf(_DEF_UART1,
+        "Max OC Streak A/B/C : %lu / %lu / %lu\r\n",
+        (unsigned long)silent_scan.oc_max_streak[0],
+        (unsigned long)silent_scan.oc_max_streak[1],
+        (unsigned long)silent_scan.oc_max_streak[2]);
+
+    uartPrintf(_DEF_UART1,
+        "First OC Sample : %lu\r\n",
+        (unsigned long)silent_scan.first_oc_sample);
+
+    uartPrintf(_DEF_UART1,
+        "First OC Raw A/B/C : %u / %u / %u\r\n",
+        (unsigned int)silent_scan.first_oc_raw[0],
+        (unsigned int)silent_scan.first_oc_raw[1],
+        (unsigned int)silent_scan.first_oc_raw[2]);
+
+
+    uartPrintf(_DEF_UART1,
+        "First Spike Sample : %lu\r\n",
+        (unsigned long)silent_scan.first_spike_sample);
+
+    uartPrintf(_DEF_UART1,
+        "First Spike Raw : %u / %u / %u\r\n",
+        (unsigned int)silent_scan.first_spike_raw[0],
+        (unsigned int)silent_scan.first_spike_raw[1],
+        (unsigned int)silent_scan.first_spike_raw[2]);
+
+    uartPrintf(_DEF_UART1,
+        "TIM1 MOE : %u\r\n",
+        (unsigned int)((TIM1->BDTR & TIM_BDTR_MOE) != 0U));
+
+    uartPrintf(_DEF_UART1,
+        "State before stop : %d\r\n",
+        (int)silent_state);
+
+    uartPrintf(_DEF_UART1,
+        "Fault : %d\r\n",
+        (int)silent_fault);
+
+    uartPrintf(_DEF_UART1,
+        "================================\r\n");
+
+    return;
+
+#else
+
+
   while (1)
   {
     uint32_t now = millis();
@@ -208,6 +695,22 @@ void apMain(void)
       motorLowSpeedTask();
     }
 
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_ROTATION_TEST_ENABLE == 1U)
+
+    // ADC ISR이 멈춰 정상 종료되지 않는 상황 대비
+    if ((current_test_started == true) &&
+        (current_test_stopped == false) &&
+        (motorGetState() == MOTOR_STATE_CURRENT_LOOP) &&
+        (motorCurrentDiagIsDone() == false) &&
+        ((uint32_t)(now - current_test_start_ms) >
+         (CURRENT_LOOP_TEST_TIME_MS + 200U)))
+    {
+      // main loop에서 PWM 및 ADC 중지
+      motorSetFault(MOTOR_FAULT_DIAG_TIMEOUT);
+    }
+
+#endif
 
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
 
@@ -223,7 +726,7 @@ void apMain(void)
       motor_abc_f_t current_min;
       motor_abc_f_t current_max;
 
-#if !(CURRENT_ADC_NOISE_TEST_ENABLE)
+  #if !(CURRENT_ADC_NOISE_TEST_ENABLE)
       uint32_t l_sample_count = 0U;
       float l_id = 0.0f;
       float l_iq = 0.0f;
@@ -232,37 +735,38 @@ void apMain(void)
       float l_theta = 0.0f;
       int32_t id_ref_ma;
       int32_t iq_ref_ma;
-#else
+
+  #else
       uint32_t noise_count = 0U;
       motor_abc_u16_t noise_raw;
       motor_abc_f_t noise_current;
-#endif
+  #endif
 
       // 정지 전에 측정값 보존. 시험 종료 후에는 저장된 CSV만 출력.
       motorGetMonitor(&monitor);
       motorCurrentDiagGetCurrentMinMax(&current_min, &current_max);
       current_test_adc_samples = motorCurrentDiagGetSampleCount();
-#if !(CURRENT_ADC_NOISE_TEST_ENABLE)
+  #if !(CURRENT_ADC_NOISE_TEST_ENABLE)
       id_ref_ma = (int32_t)(monitor.id_ref * 1000.0f);
       iq_ref_ma = (int32_t)(monitor.iq_ref * 1000.0f);
-#endif
+  #endif
       motorSetCurrentReference(0.0f, 0.0f);
       motorStop();
       current_test_stopped = true;
       prev_adc_count = adcGetCurrentUpdateCount();
 
-#if CURRENT_ADC_NOISE_TEST_ENABLE
-#if CURRENT_ADC_SEQUENCE_TEST_ENABLE
+  #if CURRENT_ADC_NOISE_TEST_ENABLE
+    #if CURRENT_ADC_SEQUENCE_TEST_ENABLE
   uartPrintf(_DEF_UART1,
              "\r\n===== OFF-ON-OFF ADC SEQUENCE - SUMMARY =====\r\n");
-#elif CURRENT_ADC_PWM_OFF_TEST_ENABLE
+    #elif CURRENT_ADC_PWM_OFF_TEST_ENABLE
   uartPrintf(_DEF_UART1,
              "\r\n===== PWM OFF ADC NOISE - SUMMARY =====\r\n");
-#else
+    #else
   uartPrintf(_DEF_UART1,
              "\r\n===== NEUTRAL PWM ON ADC NOISE - SUMMARY =====\r\n");
-#endif
-#else
+    #endif
+  #else
       uartPrintf(_DEF_UART1, "\r\n===== CURRENT PI - SUMMARY =====\r\n");
       uartPrintf(_DEF_UART1, "Id Ref/Meas : %ld / %ld mA\r\n",
                  (long)id_ref_ma, (long)(monitor.id_meas * 1000.0f));
@@ -271,17 +775,17 @@ void apMain(void)
       uartPrintf(_DEF_UART1, "Vd/Vq       : %ld / %ld mV\r\n",
                  (long)(monitor.vd_cmd * 1000.0f),
                  (long)(monitor.vq_cmd * 1000.0f));
-#endif
+  #endif
       uartPrintf(_DEF_UART1, "RESULT      : COMPLETE (Fault %d)\r\n", (int)monitor.fault);
       uartPrintf(_DEF_UART1, "Samples     : %lu\r\n",
                  (unsigned long)current_test_adc_samples);
       apPrintCurrentDiagTiming();  // 추가
-#if CURRENT_ADC_SEQUENCE_TEST_ENABLE// 추가
+  #if CURRENT_ADC_SEQUENCE_TEST_ENABLE// 추가
       uartPrintf(
           _DEF_UART1,
           "MOE after PWM OFF : %lu\r\n",
           (unsigned long)motorCurrentDiagGetMoeAfterOff());
-#endif// 추가
+  #endif// 추가
       uartPrintf(_DEF_UART1, "Ia Min/Max  : %ld / %ld mA\r\n",
                  (long)(current_min.a * 1000.0f),
                  (long)(current_max.a * 1000.0f));
@@ -291,20 +795,20 @@ void apMain(void)
       uartPrintf(_DEF_UART1, "Ic Min/Max  : %ld / %ld mA\r\n",
                  (long)(current_min.c * 1000.0f),
                  (long)(current_max.c * 1000.0f));
-#if CURRENT_ADC_NOISE_TEST_ENABLE
+  #if CURRENT_ADC_NOISE_TEST_ENABLE
 
   noise_count = motorCurrentNoiseGetCount();
 
-#if CURRENT_ADC_SEQUENCE_TEST_ENABLE
+    #if CURRENT_ADC_SEQUENCE_TEST_ENABLE
   uartPrintf(_DEF_UART1,
              "\r\n===== OFF-ON-OFF ADC SEQUENCE TEST =====\r\n");
-#elif CURRENT_ADC_PWM_OFF_TEST_ENABLE
+    #elif CURRENT_ADC_PWM_OFF_TEST_ENABLE
   uartPrintf(_DEF_UART1,
              "\r\n===== PWM OFF ADC NOISE TEST =====\r\n");
-#else
+    #else
   uartPrintf(_DEF_UART1,
              "\r\n===== NEUTRAL PWM ON ADC NOISE TEST =====\r\n");
-#endif
+    #endif
   uartPrintf(_DEF_UART1, "Duty cmd: 500 / 500 / 500 permille\r\n");
   uartPrintf(_DEF_UART1, "Ts      : %lu us\r\n", (unsigned long)CURRENT_LOOP_PERIOD_US);
 
@@ -313,7 +817,7 @@ void apMain(void)
       "Samples : %lu\r\n\r\n",
       (unsigned long)noise_count);
 
-#if CURRENT_ADC_SEQUENCE_TEST_ENABLE
+    #if CURRENT_ADC_SEQUENCE_TEST_ENABLE
 
   uint32_t seq_count[3] = {0U, 0U, 0U};
 
@@ -325,7 +829,7 @@ void apMain(void)
       _DEF_UART1,
       "Stage: OFF1(0-99), ON(100-299), OFF2(300-399)\r\n");
 
-#endif
+    #endif
 
   uartPrintf(
       _DEF_UART1,
@@ -372,7 +876,7 @@ void apMain(void)
           (long)ic_ma,
           (long)sum_ma);
 
-#if CURRENT_ADC_SEQUENCE_TEST_ENABLE
+    #if CURRENT_ADC_SEQUENCE_TEST_ENABLE
 
       uint32_t stage;
 
@@ -400,12 +904,12 @@ void apMain(void)
       seq_current_sum[stage][1] += noise_current.b;
       seq_current_sum[stage][2] += noise_current.c;
 
-#endif
+    #endif
 
     }
   }
 
-#if CURRENT_ADC_SEQUENCE_TEST_ENABLE
+    #if CURRENT_ADC_SEQUENCE_TEST_ENABLE
 
   const char *stage_name[3] =
   {
@@ -455,26 +959,38 @@ void apMain(void)
         (long)(seq_current_sum[stage][2] * 1000.0f / n));
   }
 
-#endif
+    #endif
 
   uartPrintf(
       _DEF_UART1,
       "======================================\r\n");
 
-#else
+  #else
   l_sample_count = motorCurrentLTestGetCount();
 
-#if CURRENT_IQ_STEP_TEST_ENABLE
+    #if CURRENT_ROTATION_TEST_ENABLE
+
+  uartPrintf(_DEF_UART1,
+           "\r\n===== HALL FOC ROTATION TEST =====\r\n");
+  uartPrintf(
+      _DEF_UART1,
+      "Iq Profile : 0 -> %ld -> 0 mA\r\n",
+      (long)(CURRENT_ROTATION_REF_A * 1000.0f));
+
+  uartPrintf(
+      _DEF_UART1,
+      "Iq Hold    : 100 ~ 2100 ms\r\n");
+    #elif CURRENT_IQ_STEP_TEST_ENABLE
 
   uartPrintf(_DEF_UART1,
            "\r\n===== CURRENT PI IQ STEP RESPONSE TEST =====\r\n");
 
-#else
+    #else
 
   uartPrintf(_DEF_UART1,
            "\r\n===== CURRENT PI IQ TEST =====\r\n");
 
-#endif
+    #endif
   uartPrintf(_DEF_UART1, "Id Ref  : %ld mA\r\n", (long)id_ref_ma);
   uartPrintf(_DEF_UART1, "Iq Ref  : %ld mA\r\n", (long)iq_ref_ma);
   uartPrintf(_DEF_UART1, "Kp      : 0.30\r\n");
@@ -483,19 +999,25 @@ void apMain(void)
   uartPrintf(_DEF_UART1, "Samples : %lu\r\n\r\n", (unsigned long)l_sample_count);
 
 
-#if CURRENT_IQ_STEP_TEST_ENABLE
+    #if CURRENT_ROTATION_TEST_ENABLE
 
-uartPrintf(_DEF_UART1,
-           "N,Time_us,IqRef_mA,Id_mA,Iq_mA,"
-           "Vd_mV,Vq_mV,Theta_mrad\r\n");
+  uartPrintf(_DEF_UART1,
+             "N,Time_us,IqRef_mA,Id_mA,Iq_mA,"
+             "Vd_mV,Vq_mV,Theta_mrad,HallState,HallSector,HallValid\r\n");
 
-#else
+    #elif CURRENT_IQ_STEP_TEST_ENABLE
 
-uartPrintf(_DEF_UART1,
-           "N,Time_us,Id_mA,Iq_mA,"
-           "Vd_mV,Vq_mV,Theta_mrad\r\n");
+  uartPrintf(_DEF_UART1,
+             "N,Time_us,IqRef_mA,Id_mA,Iq_mA,"
+             "Vd_mV,Vq_mV,Theta_mrad\r\n");
 
-#endif
+    #else
+
+  uartPrintf(_DEF_UART1,
+             "N,Time_us,Id_mA,Iq_mA,"
+             "Vd_mV,Vq_mV,Theta_mrad\r\n");
+
+    #endif
 
 for (uint32_t i = 0U; i < l_sample_count; i++)
 {
@@ -506,7 +1028,51 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
                                  &l_vq,
                                  &l_theta) == true)
   {
-#if CURRENT_IQ_STEP_TEST_ENABLE
+    #if CURRENT_ROTATION_TEST_ENABLE
+
+  uint32_t sample_index =
+      i * CURRENT_ROTATION_LOG_DIVIDER;
+
+  uint32_t time_us =
+      sample_index * CURRENT_LOOP_PERIOD_US;
+
+  int32_t iq_ref_ma = 0;
+
+  if ((sample_index >= CURRENT_ROTATION_START_SAMPLE) &&
+      (sample_index < CURRENT_ROTATION_END_SAMPLE))
+  {
+    iq_ref_ma =
+        (int32_t)(CURRENT_ROTATION_REF_A * 1000.0f);
+  }
+
+
+  uint8_t hall_state = 0U;
+  int8_t hall_sector = -1;
+  uint8_t hall_valid = 0U;
+
+  motorCurrentLTestGetHallSample(
+      i,
+      &hall_state,
+      &hall_sector,
+      &hall_valid);
+
+  uartPrintf(
+      _DEF_UART1,
+      "%lu,%lu,%ld,%ld,%ld,%ld,%ld,%ld,%u,%d,%u\r\n",
+      (unsigned long)i,
+      (unsigned long)time_us,
+      (long)iq_ref_ma,
+      (long)(l_id * 1000.0f),
+      (long)(l_iq * 1000.0f),
+      (long)(l_vd * 1000.0f),
+      (long)(l_vq * 1000.0f),
+      (long)(l_theta * 1000.0f),
+      (unsigned int)hall_state,
+      (int)hall_sector,
+      (unsigned int)hall_valid);
+
+
+    #elif CURRENT_IQ_STEP_TEST_ENABLE
 
     int32_t iq_ref_ma = 0;
 
@@ -528,7 +1094,7 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
                (long)(l_vq * 1000.0f),
                (long)(l_theta * 1000.0f));
 
-#else
+    #else
 
     uartPrintf(_DEF_UART1,
                "%lu,%lu,%ld,%ld,%ld,%ld,%ld\r\n",
@@ -540,7 +1106,7 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
                (long)(l_vq * 1000.0f),
                (long)(l_theta * 1000.0f));
 
-#endif
+    #endif
   }
 }
 
@@ -548,7 +1114,11 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
         uartPrintf(_DEF_UART1,
                    "============================\r\n");
 
-        /* 마지막 1ms 전류 PI 응답 분석 */
+    #if CURRENT_ROTATION_TEST_ENABLE
+    // 마지막 10개 기록 샘플 = 100ms 구간 분석
+    #else
+    // 마지막 20개 기록 샘플 = 1ms 구간 분석
+    #endif
         {
           uint32_t tail_count = CURRENT_DIAG_TAIL_SAMPLES;
 
@@ -634,7 +1204,7 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
 
         uartPrintf(_DEF_UART1,
                    "============================\r\n");
-#endif
+  #endif
 
     }
 
@@ -665,11 +1235,11 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
       current_test_stopped = true;
       prev_adc_count = adcGetCurrentUpdateCount();
 
-#if CURRENT_ADC_NOISE_TEST_ENABLE
+  #if CURRENT_ADC_NOISE_TEST_ENABLE
       uartPrintf(_DEF_UART1, "\r\n===== ADC NOISE TEST - FAULT =====\r\n");
-#else
+  #else
       uartPrintf(_DEF_UART1, "\r\n===== CURRENT PI TEST - FAULT =====\r\n");
-#endif
+  #endif
       uartPrintf(_DEF_UART1, "Fault       : %d\r\n", (int)test_fault);
       if (test_fault == MOTOR_FAULT_BKIN)
       {
@@ -682,6 +1252,30 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
       }
       uartPrintf(_DEF_UART1, "Samples     : %lu\r\n",
                  (unsigned long)current_test_adc_samples);
+
+  #if CURRENT_ROTATION_TEST_ENABLE
+
+      uint32_t elapsed_ms =
+          (uint32_t)(now - current_test_start_ms);
+
+      uint32_t adc_avg_hz = 0U;
+
+      if (elapsed_ms > 0U)
+      {
+        adc_avg_hz =
+            (current_test_adc_samples * 1000U) / elapsed_ms;
+      }
+
+      uartPrintf(_DEF_UART1,
+          "Elapsed    : %lu ms\r\n",
+          (unsigned long)elapsed_ms);
+
+      uartPrintf(_DEF_UART1,
+          "ADC Avg Hz : %lu\r\n",
+          (unsigned long)adc_avg_hz);
+
+  #endif
+
       uartPrintf(_DEF_UART1, "Startup Trip: %lu\r\n",
                  (unsigned long)motorCurrentDiagGetStartupTripSample());
       apPrintCurrentDiagTiming();
@@ -780,6 +1374,7 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
       motor_abc_u16_t raw;
       motor_abc_f_t offset;
 
+      uint32_t elapsed_ms = now - pre_time_debug;
 
       pre_time_debug = now;
 
@@ -791,7 +1386,9 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
       adc_count = adcGetCurrentUpdateCount();
       adc_diff = adc_count - prev_adc_count;
       prev_adc_count = adc_count;
-      adc_hz = adc_diff * 2U;
+      adc_hz = (elapsed_ms > 0U)
+             ? (adc_diff * 1000U) / elapsed_ms
+             : 0U;
 
       vbus_mv = (int32_t)(monitor.vbus * 1000.0f);
 
@@ -825,6 +1422,105 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
           _DEF_UART1,
           "ADC Hz    : %lu\r\n",
           (unsigned long)adc_hz);
+
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_ADC_RAW_SCAN_ENABLE == 1U)
+
+    motor_adc_raw_scan_t scan = {0};
+
+    motorAdcRawScanGetStats(&scan);
+
+    uartPrintf(_DEF_UART1,
+        "SCAN Samples : %lu\r\n",
+        (unsigned long)scan.sample_count);
+
+    uartPrintf(_DEF_UART1,
+        "Raw Min A/B/C : %u / %u / %u\r\n",
+        (unsigned int)scan.raw_min[0],
+        (unsigned int)scan.raw_min[1],
+        (unsigned int)scan.raw_min[2]);
+
+    uartPrintf(_DEF_UART1,
+        "Raw Max A/B/C : %u / %u / %u\r\n",
+        (unsigned int)scan.raw_max[0],
+        (unsigned int)scan.raw_max[1],
+        (unsigned int)scan.raw_max[2]);
+
+    uartPrintf(_DEF_UART1,
+        "Ia Min/Max : %ld / %ld mA\r\n",
+        (long)(scan.current_min[0] * 1000.0f),
+        (long)(scan.current_max[0] * 1000.0f));
+
+    uartPrintf(_DEF_UART1,
+        "Ib Min/Max : %ld / %ld mA\r\n",
+        (long)(scan.current_min[1] * 1000.0f),
+        (long)(scan.current_max[1] * 1000.0f));
+
+    uartPrintf(_DEF_UART1,
+        "Ic Min/Max : %ld / %ld mA\r\n",
+        (long)(scan.current_min[2] * 1000.0f),
+        (long)(scan.current_max[2] * 1000.0f));
+
+    uartPrintf(_DEF_UART1,
+        "Spike Count A/B/C : %lu / %lu / %lu\r\n",
+        (unsigned long)scan.spike_count[0],
+        (unsigned long)scan.spike_count[1],
+        (unsigned long)scan.spike_count[2]);
+
+    uartPrintf(_DEF_UART1,
+        "First Spike Sample : %lu\r\n",
+        (unsigned long)scan.first_spike_sample);
+
+    uartPrintf(_DEF_UART1,
+        "First Spike Raw : %u / %u / %u\r\n",
+        (unsigned int)scan.first_spike_raw[0],
+        (unsigned int)scan.first_spike_raw[1],
+        (unsigned int)scan.first_spike_raw[2]);
+
+    uartPrintf(_DEF_UART1,
+        "TIM1 MOE : %u\r\n",
+        (unsigned int)((TIM1->BDTR & TIM_BDTR_MOE) != 0U));
+
+#elif  (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_FOC_BENCH_ENABLE == 1U)
+
+      uint32_t foc_count = 0U;
+      uint32_t foc_total_cycles = 0U;
+      uint32_t foc_max_cycles = 0U;
+
+      motorFocBenchGetStats(
+          &foc_count,
+          &foc_total_cycles,
+          &foc_max_cycles);
+
+      uint32_t cycles_per_us = SystemCoreClock / 1000000U;
+
+      uint32_t foc_avg_cycles = 0U;
+
+      if (foc_count > 0U)
+      {
+          foc_avg_cycles = foc_total_cycles / foc_count;
+      }
+
+      uartPrintf(_DEF_UART1,
+          "FOC Count  : %lu\r\n",
+          (unsigned long)foc_count);
+
+      uartPrintf(_DEF_UART1,
+          "FOC Avg us : %lu\r\n",
+          (unsigned long)(foc_avg_cycles / cycles_per_us));
+
+      uartPrintf(_DEF_UART1,
+          "FOC Max us : %lu\r\n",
+          (unsigned long)(foc_max_cycles / cycles_per_us));
+
+      uartPrintf(_DEF_UART1,
+          "TIM1 MOE   : %u\r\n",
+          (unsigned int)((TIM1->BDTR & TIM_BDTR_MOE) != 0U));
+
+#endif
+
 
       uartPrintf(
           _DEF_UART1,
@@ -999,4 +1695,5 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
       }
     }
   }
+#endif  // CURRENT_ADC_UART_SILENT_TEST 분기
 }

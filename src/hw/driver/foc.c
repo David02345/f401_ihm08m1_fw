@@ -29,6 +29,7 @@ void focClarke(float ia, float ib, float ic, motor_alphabeta_t *i_ab)
   i_ab->alpha = ia;
   i_ab->beta  = (ia + 2.0f * ib) / SQRT_3;
 }
+
 void focPark(float ialpha, float ibeta, float theta_e, motor_dq_t *i_dq)
 {
   if (i_dq == NULL)
@@ -36,8 +37,11 @@ void focPark(float ialpha, float ibeta, float theta_e, motor_dq_t *i_dq)
     return;
   }
 
-  i_dq->d =  ialpha * cosf(theta_e) + ibeta * sinf(theta_e);
-  i_dq->q = -ialpha * sinf(theta_e) + ibeta * cosf(theta_e);
+  float sin_theta = sinf(theta_e);
+  float cos_theta = cosf(theta_e);
+
+  i_dq->d =  ialpha * cos_theta + ibeta * sin_theta;
+  i_dq->q = -ialpha * sin_theta + ibeta * cos_theta;
 }
 
 void focInvPark(float vd, float vq, float theta_e, motor_alphabeta_t *v_ab)
@@ -47,9 +51,13 @@ void focInvPark(float vd, float vq, float theta_e, motor_alphabeta_t *v_ab)
     return;
   }
 
-  v_ab->alpha = vd * cosf(theta_e) - vq * sinf(theta_e);
-  v_ab->beta = vd * sinf(theta_e) + vq * cosf(theta_e);
+  float sin_theta = sinf(theta_e);
+  float cos_theta = cosf(theta_e);
+
+  v_ab->alpha = vd * cos_theta - vq * sin_theta;
+  v_ab->beta  = vd * sin_theta + vq * cos_theta;;
 }
+
 void focInvClarke(float valpha, float vbeta, motor_abc_f_t *v_abc)
 {
   if (v_abc == NULL)
