@@ -1476,6 +1476,24 @@ static void motorNeutralPwmDiag(void)
 
 current_diag_sample_count++;
 
+#if (CURRENT_SW_BREAK_TEST_ENABLE == 1U) && \
+    (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
+
+  if (current_diag_sample_count ==
+      CURRENT_SW_BREAK_TRIGGER_SAMPLE)
+  {
+    if ((TIM1->BDTR & TIM_BDTR_MOE) != 0U)
+    {
+      // TIM1에 소프트웨어 Break 이벤트 발생
+      TIM1->EGR = TIM_EGR_BG;
+    }
+
+    return;
+  }
+
+#endif
+
 #if (CURRENT_IQ_STEP_TEST_ENABLE == 1U)
 
   // 100 samples = 5ms
