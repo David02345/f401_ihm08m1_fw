@@ -199,11 +199,8 @@ void pwmStart(void)
   pwmSetDuty(0.5f, 0.5f, 0.5f);
 
 
-
   // 새로운 PWM 시험 시작 전 기록 초기화
   pwmResetBreakSnapshot(); // 테스트
-
-
 
 
   pwmClearBreakFault();

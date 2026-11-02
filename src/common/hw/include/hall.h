@@ -29,6 +29,9 @@ float hallGetElectricalAngle(void);
 float hallGetMechanicalAngle(void);
 
 int8_t hallGetDirection(void);
+
+uint32_t hallGetIrqCount(void);
+uint32_t hallGetTransitionCount(void);
 #endif
 
 #endif /* SRC_COMMON_HW_INCLUDE_HALL_H_ */

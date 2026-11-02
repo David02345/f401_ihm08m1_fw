@@ -107,6 +107,11 @@ static float current_iq_ref = 0.0f;
 
 static volatile motor_monitor_t motor_monitor;
 
+#if (CURRENT_ROTATION_TEST_ENABLE == 1U) && (CURRENT_ROTATION_ANGLE_SWEEP_ENABLE == 1U)
+
+static float current_rotation_test_theta_e = 0.0f;
+
+#endif
 
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (CURRENT_ADC_RAW_SCAN_ENABLE == 1U)
 
@@ -638,6 +643,11 @@ void motorCurrentDiagStart(void)
   pidReset(&pi_id);
   pidReset(&pi_iq);
 
+#if (CURRENT_ROTATION_TEST_ENABLE == 1U) && (CURRENT_ROTATION_ANGLE_SWEEP_ENABLE == 1U)
+
+  current_rotation_test_theta_e = hallGetElectricalAngle();
+
+#endif
   /*
    * 30 ms test counter reset
    */
@@ -1261,6 +1271,24 @@ static void motorNeutralPwmDiag(void)
 
 #endif
 
+#if (CURRENT_ROTATION_TEST_ENABLE == 1U) && \
+    (CURRENT_ROTATION_ANGLE_SWEEP_ENABLE == 1U)
+
+  if ((current_diag_sample_count >= CURRENT_ROTATION_START_SAMPLE) &&
+      (current_diag_sample_count < CURRENT_ROTATION_END_SAMPLE))
+  {
+    current_rotation_test_theta_e +=
+        CURRENT_ROTATION_SWEEP_SPEED_E * CUR_DT;
+
+    current_rotation_test_theta_e =
+        wrapFloat(current_rotation_test_theta_e,
+                  0.0f, 2.0f * PI);
+  }
+
+  theta_e = current_rotation_test_theta_e;
+
+#endif
+
 #if CURRENT_ADC_NOISE_TEST_ENABLE
 
   motor_abc_f_t i_abc;
@@ -1870,6 +1898,19 @@ static void motorOpenLoop(void)
   motor_monitor.ia = i_abc.a;
   motor_monitor.ib = i_abc.b;
   motor_monitor.ic = i_abc.c;
+
+  // Open-loop 소프트웨어 과전류 보호
+  if ((fabsf(i_abc.a) > CURRENT_TEST_OC_LIMIT_A) ||
+      (fabsf(i_abc.b) > CURRENT_TEST_OC_LIMIT_A) ||
+      (fabsf(i_abc.c) > CURRENT_TEST_OC_LIMIT_A))
+  {
+      pwmDisableOutput();
+
+      motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
+      motor_state = MOTOR_STATE_FAULT;
+
+      return;
+  }
 
 #if _USE_HALL_OFFSET_CALIBRATION
 

@@ -24,6 +24,9 @@ static volatile float hall_angle_m = 0.0f;
 
 static volatile bool hall_valid = false;
 
+static volatile uint32_t hall_irq_count = 0U;
+static volatile uint32_t hall_transition_count = 0U;
+
 static uint8_t hallReadState(void);
 static int8_t hallGetSector(uint8_t state);
 static float hallSectorToElectricalAngle(int8_t sector);
@@ -44,6 +47,11 @@ bool hallInit(void)
   }
 
   hall_valid = true;
+
+  hall_irq_count = 0U;
+  hall_transition_count = 0U;
+
+
   hall_prev_sector = hall_sector;
   hall_angle_e = hallSectorToElectricalAngle(hall_sector);
   hall_last_cycle = cycleGet();
@@ -100,6 +108,14 @@ void hallUpdate(void)
   float center_angle;
 
   state = hallReadState();
+
+  hall_irq_count++;
+
+  if (state != hall_state)
+  {
+    hall_transition_count++;
+  }
+
   hall_state = state;
 
   sector = hallGetSector(state);
@@ -291,4 +307,14 @@ static float hallSectorToElectricalAngle(int8_t sector)
 int8_t hallGetDirection(void)
 {
   return hall_dir;
+}
+
+uint32_t hallGetIrqCount(void)
+{
+  return hall_irq_count;
+}
+
+uint32_t hallGetTransitionCount(void)
+{
+  return hall_transition_count;
 }

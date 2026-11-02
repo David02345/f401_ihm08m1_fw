@@ -80,22 +80,27 @@
   * @{
   */
 #define INTEGRAL_ID_MAX                   0.5f
-#define INTEGRAL_ID_MIN                   -0.5f
+#define INTEGRAL_ID_MIN                  -0.5f
 #define INTEGRAL_IQ_MAX                   0.5f
-#define INTEGRAL_IQ_MIN                   -0.5f
+#define INTEGRAL_IQ_MIN                  -0.5f
 #define INTEGRAL_SPD_MAX                  1.0f
-#define INTEGRAL_SPD_MIN                  -1.0f
-
+#define INTEGRAL_SPD_MIN                 -1.0f
+/*
 #define OUTPUT_VD_REF_MAX                 0.5f
 #define OUTPUT_VD_REF_MIN                 -0.5f
 #define OUTPUT_VQ_REF_MAX                 0.5f
 #define OUTPUT_VQ_REF_MIN                 -0.5f
+*/
+#define OUTPUT_VD_REF_MAX                 0.10f
+#define OUTPUT_VD_REF_MIN                -0.10f
+#define OUTPUT_VQ_REF_MAX                 0.35f
+#define OUTPUT_VQ_REF_MIN                -0.35f
 #define OUTPUT_ID_REF_MAX                 0.5f
-#define OUTPUT_ID_REF_MIN                 -0.5f
+#define OUTPUT_ID_REF_MIN                -0.5f
 #define OUTPUT_IQ_REF_MAX                 1.0f
-#define OUTPUT_IQ_REF_MIN                 -1.0f
+#define OUTPUT_IQ_REF_MIN                -1.0f
 #define OUTPUT_SPD_REF_MAX                10.0f
-#define OUTPUT_SPD_REF_MIN                -10.0f
+#define OUTPUT_SPD_REF_MIN               -10.0f
 /**
   * @}
   */
@@ -165,7 +170,7 @@
   * @{
   */
 #define CURRENT_NEUTRAL_DIAG_ENABLE       1U
-#define CURRENT_SW_BREAK_TEST_ENABLE      1U
+#define CURRENT_SW_BREAK_TEST_ENABLE      0U
 #define CURRENT_SW_BREAK_TRIGGER_SAMPLE   20U
 
 #define CURRENT_ADC_NOISE_TEST_ENABLE     0U
@@ -189,14 +194,17 @@
 // 신규 Iq Step Response 시험
 #define CURRENT_IQ_STEP_TEST_ENABLE       0U
 #define CURRENT_IQ_STEP_STAGE_SAMPLES     100U
-#define CURRENT_IQ_STEP_REF_A             0.1f
+#define CURRENT_IQ_STEP_REF_A             0.05f
 
 // 신규 Hall FOC 회전 진단
-#define CURRENT_ROTATION_TEST_ENABLE      0U
-#define CURRENT_ROTATION_REF_A            0.1f
+#define CURRENT_ROTATION_TEST_ENABLE      1U
+#define CURRENT_ROTATION_REF_A            0.55f
 #define CURRENT_ROTATION_START_SAMPLE     2000U
-#define CURRENT_ROTATION_END_SAMPLE       42000U
+#define CURRENT_ROTATION_END_SAMPLE       22000U
 #define CURRENT_ROTATION_LOG_DIVIDER      200U
+
+#define CURRENT_ROTATION_ANGLE_SWEEP_ENABLE  1U
+#define CURRENT_ROTATION_SWEEP_SPEED_E       1.5f
 
 #define CURRENT_FOC_BENCH_ENABLE          0U // PWM 출력 없이 FOC 계산 시간 측정
 #define CURRENT_FOC_BENCH_DIAG_LOAD       0U // FOC 벤치마크에 Hall 검사 및 로그 저장 부하 추가
@@ -212,7 +220,7 @@
 
 #if (CURRENT_ROTATION_TEST_ENABLE == 1U)
 
-#define CURRENT_LOOP_TEST_TIME_MS         2200U
+#define CURRENT_LOOP_TEST_TIME_MS         1200U
 
 #elif (CURRENT_ADC_SEQUENCE_TEST_ENABLE == 1U)
 
@@ -228,7 +236,7 @@
 
 #else
 
-#define CURRENT_LOOP_TEST_TIME_MS 10U
+#define CURRENT_LOOP_TEST_TIME_MS         10U
 
 #endif
 #define CURRENT_LOOP_PERIOD_US            50U

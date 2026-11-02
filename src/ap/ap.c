@@ -90,7 +90,46 @@ void apInit(void)
 {
   uartOpen(_DEF_UART1, 57600);
 }
+#if 0
+void apMain(void)
+{
+  delay(1000);
 
+  pwmStart();
+  pwmEnableOutput();
+
+  uartPrintf(_DEF_UART1,
+      "\r\n===== HARDWARE BKIN TEST =====\r\n");
+
+  uartPrintf(_DEF_UART1,
+      "MOE Before : %lu\r\n",
+      (unsigned long)((TIM1->BDTR & TIM_BDTR_MOE) != 0U));
+
+  uartPrintf(_DEF_UART1,
+      "Connect PA6(BKIN) to GND\r\n");
+
+  while ((pwmIsBreakFault() == false) &&
+         ((TIM1->BDTR & TIM_BDTR_MOE) != 0U))
+  {
+    delay(1);
+  }
+
+  uartPrintf(_DEF_UART1,
+      "MOE After  : %lu\r\n",
+      (unsigned long)((TIM1->BDTR & TIM_BDTR_MOE) != 0U));
+
+  uartPrintf(_DEF_UART1,
+      "Break IRQ  : %u\r\n",
+      (unsigned int)pwmIsBreakFault());
+
+  pwmStop();
+
+  while (1)
+  {
+    delay(1000);
+  }
+}
+#endif
 
 void apMain(void)
 {
@@ -176,6 +215,64 @@ void apMain(void)
 
   delay(1000);
 
+#if 0  // Hall EXTI 소프트웨어 테스트
+
+  pwmDisableOutput();
+
+  uint32_t c0 = hallGetIrqCount();
+
+  EXTI->SWIER = GPIO_PIN_3;
+  delay(10);
+  uint32_t c1 = hallGetIrqCount();
+
+  EXTI->SWIER = GPIO_PIN_10;
+  delay(10);
+  uint32_t c2 = hallGetIrqCount();
+
+  EXTI->SWIER = GPIO_PIN_15;
+  delay(10);
+  uint32_t c3 = hallGetIrqCount();
+
+  uartPrintf(_DEF_UART1,
+      "\r\n===== HALL EXTI SELF TEST =====\r\n");
+
+  uartPrintf(_DEF_UART1,
+      "IRQ Count : %lu -> %lu -> %lu -> %lu\r\n",
+      (unsigned long)c0,
+      (unsigned long)c1,
+      (unsigned long)c2,
+      (unsigned long)c3);
+
+  uartPrintf(_DEF_UART1,
+      "Hall Transition : %lu\r\n",
+      (unsigned long)hallGetTransitionCount());
+
+  while (1)
+  {
+    delay(1000);
+  }
+
+#endif
+
+#if 0
+  pwmDisableOutput();
+
+  while (1)
+  {
+    uint8_t h1 = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_15);
+    uint8_t h2 = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_3);
+    uint8_t h3 = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_10);
+
+    uartPrintf(_DEF_UART1,
+        "Hall GPIO: %d%d%d | IRQ: %lu | Transition: %lu\r\n",
+        h1, h2, h3,
+        (unsigned long)hallGetIrqCount(),
+        (unsigned long)hallGetTransitionCount());
+
+    delay(250);
+  }
+#endif
+
   motorStart();
   motorSetCurrentReference(0.0f, 0.0f);
 
@@ -200,7 +297,7 @@ void apMain(void)
 
   #elif CURRENT_ROTATION_TEST_ENABLE
 
-  // PWM 활성화 후 최초 10ms는 0A
+  // PWM 활성화 후 최초 100ms는 0A
     motorSetCurrentReference(0.0f, 0.0f);
   #else
 
@@ -223,6 +320,7 @@ void apMain(void)
 
     current_test_started = true;
     motorCurrentDiagStart();
+    current_test_start_ms = millis();  // 추가
 
     #endif
 
@@ -768,6 +866,13 @@ void apMain(void)
     #endif
   #else
       uartPrintf(_DEF_UART1, "\r\n===== CURRENT PI - SUMMARY =====\r\n");
+      uartPrintf(_DEF_UART1,
+                 "Hall IRQ Count        : %lu\r\n",
+                 (unsigned long)hallGetIrqCount());
+
+      uartPrintf(_DEF_UART1,
+                 "Hall Transition Count : %lu\r\n",
+                 (unsigned long)hallGetTransitionCount());
       uartPrintf(_DEF_UART1, "Id Ref/Meas : %ld / %ld mA\r\n",
                  (long)id_ref_ma, (long)(monitor.id_meas * 1000.0f));
       uartPrintf(_DEF_UART1, "Iq Ref/Meas : %ld / %ld mA\r\n",
@@ -979,7 +1084,7 @@ void apMain(void)
 
   uartPrintf(
       _DEF_UART1,
-      "Iq Hold    : 100 ~ 2100 ms\r\n");
+      "Iq Hold    : 100 ~ 1100 ms\r\n");
     #elif CURRENT_IQ_STEP_TEST_ENABLE
 
   uartPrintf(_DEF_UART1,
@@ -1110,7 +1215,93 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
   }
 }
 
+#if CURRENT_IQ_STEP_TEST_ENABLE
 
+{
+  const char *stage_name[3] = {
+      "BEFORE STEP",
+      "IQ STEP",
+      "AFTER STEP"
+  };
+
+  const uint32_t stage_start[3] = {
+      0U,
+      CURRENT_IQ_STEP_STAGE_SAMPLES,
+      CURRENT_IQ_STEP_STAGE_SAMPLES * 2U
+  };
+
+  const uint32_t stage_end[3] = {
+      CURRENT_IQ_STEP_STAGE_SAMPLES,
+      CURRENT_IQ_STEP_STAGE_SAMPLES * 2U,
+      l_sample_count
+  };
+
+  uartPrintf(_DEF_UART1,
+             "\r\n===== IQ STEP STATISTICS =====\r\n");
+
+  for (uint32_t stage = 0U; stage < 3U; stage++)
+  {
+    float iq_sum = 0.0f;
+    float iq_sq_sum = 0.0f;
+    float vq_sum = 0.0f;
+
+    uint32_t count = 0U;
+
+    for (uint32_t i = stage_start[stage];
+         i < stage_end[stage]; i++)
+    {
+      if (motorCurrentLTestGetSample(
+              i, &l_id, &l_iq,
+              &l_vd, &l_vq, &l_theta) == true)
+      {
+        iq_sum += l_iq;
+        iq_sq_sum += l_iq * l_iq;
+        vq_sum += l_vq;
+
+        count++;
+      }
+    }
+
+    if (count == 0U)
+    {
+      continue;
+    }
+
+    float iq_avg = iq_sum / (float)count;
+    float vq_avg = vq_sum / (float)count;
+
+    float variance =
+        iq_sq_sum / (float)count - iq_avg * iq_avg;
+
+    if (variance < 0.0f)
+    {
+      variance = 0.0f;
+    }
+
+    float iq_std = sqrtf(variance);
+
+    uartPrintf(_DEF_UART1,
+               "\r\n[%s]\r\n", stage_name[stage]);
+
+    uartPrintf(_DEF_UART1,
+               "Samples : %lu\r\n",
+               (unsigned long)count);
+
+    uartPrintf(_DEF_UART1,
+               "Iq Avg  : %ld mA\r\n",
+               (long)(iq_avg * 1000.0f));
+
+    uartPrintf(_DEF_UART1,
+               "Iq Std  : %ld mA\r\n",
+               (long)(iq_std * 1000.0f));
+
+    uartPrintf(_DEF_UART1,
+               "Vq Avg  : %ld mV\r\n",
+               (long)(vq_avg * 1000.0f));
+  }
+}
+
+#endif
         uartPrintf(_DEF_UART1,
                    "============================\r\n");
 
@@ -1697,3 +1888,4 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
   }
 #endif  // CURRENT_ADC_UART_SILENT_TEST 분기
 }
+
