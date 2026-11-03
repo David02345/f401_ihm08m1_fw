@@ -915,7 +915,6 @@ if ((current_test_started == true) &&
       uartPrintf(_DEF_UART1,
                  "Hall IRQ Count        : %lu\r\n",
                  (unsigned long)hallGetIrqCount());
-
       uartPrintf(_DEF_UART1,
                  "Hall Transition Count : %lu\r\n",
                  (unsigned long)hallGetTransitionCount());
