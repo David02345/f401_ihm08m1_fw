@@ -17,6 +17,72 @@
 #include "motor_types.h"
 
 
+
+#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP && OPEN_LOOP_DIAG_ENABLE == 1U
+
+typedef struct
+{
+  uint32_t sample;               // 20 kHz injected ADC ISR count
+  uint8_t  hall_raw;             // direct GPIO H3:H2:H1
+  uint8_t  hall_cached;          // hall.c state
+  uint8_t  hall_valid;
+  int8_t   hall_sector;
+  uint32_t hall_irq;
+  uint32_t hall_transition;
+  float theta_e;
+  float ia, ib, ic;
+  float iq_ref, id_meas, iq_meas;
+  float vd, vq;
+  float duty_u, duty_v, duty_w;
+} motor_ol_diag_sample_t;
+
+typedef struct
+{
+  uint32_t sample;
+  uint8_t hall_raw;
+  uint8_t hall_cached;
+  int8_t hall_sector;
+  float theta_e;                // commanded electrical angle BEFORE this ISR update
+  float ia, ib, ic;             // actual phase current at GPIO transition
+} motor_ol_diag_edge_t;
+
+typedef struct
+{
+  uint32_t sample_count;
+  uint32_t log_count;
+  uint32_t edge_count;
+  uint32_t edge_overflow;
+  uint32_t raw_edge_total;
+  uint32_t cached_edge_total;
+  uint32_t raw_edges_before_drive;
+  uint32_t cached_edges_before_drive;
+  uint8_t start_hall;
+  uint8_t stopped_on_hall_edge;
+  uint32_t stop_sample;
+  float theta_fixed;
+  uint32_t irq_at_start;
+  uint32_t irq_at_end;
+  uint32_t transition_at_start;
+  uint32_t transition_at_end;
+  float peak_a, peak_b, peak_c;
+  float trip_a, trip_b, trip_c;
+  uint32_t trip_sample;
+  uint8_t completed;
+  uint8_t oc_trip;
+  uint8_t bkin_trip;
+  uint8_t early_moe_off;
+  motor_ol_diag_sample_t log[OPEN_LOOP_DIAG_MAX_LOGS];
+  motor_ol_diag_edge_t edges[OPEN_LOOP_DIAG_MAX_EDGES];
+} motor_ol_diag_t;
+
+bool motorOpenLoopDiagIsDone(void);
+void motorOpenLoopDiagGet(motor_ol_diag_t *out);
+#endif
+
+
+
+
+
 bool motorInit(void);
 void motorStart(void);
 void motorStop(void);
