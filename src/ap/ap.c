@@ -1924,7 +1924,6 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
         hall_theta_e_mrad = (int32_t)(hall_theta_e * 1000.0f);
         hall_error_e_mrad = (int32_t)(hall_error_e * 1000.0f);
 
-
         uartPrintf(
             _DEF_UART1,
             "Hall Theta E : %ld mrad\r\n",
