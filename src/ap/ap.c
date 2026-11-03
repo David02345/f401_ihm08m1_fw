@@ -148,6 +148,7 @@ void apMain(void)
 
   #if CURRENT_ROTATION_TEST_ENABLE
   uint32_t current_test_start_ms = 0U;
+  bool duty_snapshot_printed = false;
   #endif
 
   #if (CURRENT_ADC_RAW_SCAN_ENABLE == 1U) && (CURRENT_ADC_UART_SILENT_TEST == 1U)
@@ -796,6 +797,51 @@ void apMain(void)
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
     (CURRENT_ROTATION_TEST_ENABLE == 1U)
 
+if ((current_test_started == true) &&
+    (current_test_stopped == false) &&
+    (duty_snapshot_printed == false) &&
+    ((uint32_t)(now - current_test_start_ms) >= 500U))
+{
+  motor_monitor_t mon = {0};
+
+  motorGetMonitor(&mon);
+
+  duty_snapshot_printed = true;
+
+  uartPrintf(_DEF_UART1,
+      "\r\n===== PWM DUTY SNAPSHOT =====\r\n");
+
+  uartPrintf(_DEF_UART1,
+      "Iq Ref/Meas : %ld / %ld mA\r\n",
+      (long)(mon.iq_ref * 1000.0f),
+      (long)(mon.iq_meas * 1000.0f));
+
+  uartPrintf(_DEF_UART1,
+      "Vd/Vq       : %ld / %ld mV\r\n",
+      (long)(mon.vd_cmd * 1000.0f),
+      (long)(mon.vq_cmd * 1000.0f));
+
+  uartPrintf(_DEF_UART1,
+      "Theta       : %ld mrad\r\n",
+      (long)(mon.theta_e * 1000.0f));
+
+  uartPrintf(_DEF_UART1,
+      "Duty UVW    : %ld / %ld / %ld permille\r\n",
+      (long)(mon.duty_u * 1000.0f),
+      (long)(mon.duty_v * 1000.0f),
+      (long)(mon.duty_w * 1000.0f));
+
+  uartPrintf(_DEF_UART1,
+      "State/Fault : %d / %d\r\n",
+      (int)mon.state,
+      (int)mon.fault);
+}
+
+#endif
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
+    (CURRENT_ROTATION_TEST_ENABLE == 1U)
+
     // ADC ISR이 멈춰 정상 종료되지 않는 상황 대비
     if ((current_test_started == true) &&
         (current_test_stopped == false) &&
@@ -891,6 +937,23 @@ void apMain(void)
           "MOE after PWM OFF : %lu\r\n",
           (unsigned long)motorCurrentDiagGetMoeAfterOff());
   #endif// 추가
+
+      motor_abc_f_t snapshot;
+
+      motorCurrentDiagGetSnapshot50ms(&snapshot);
+
+      float current_sum = snapshot.a + snapshot.b + snapshot.c;
+
+      uartPrintf(_DEF_UART1,
+                 "Ia/Ib/Ic @50ms : %ld / %ld / %ld mA\r\n",
+                 (long)(snapshot.a * 1000.0f),
+                 (long)(snapshot.b * 1000.0f),
+                 (long)(snapshot.c * 1000.0f));
+
+      uartPrintf(_DEF_UART1,
+                 "Ia+Ib+Ic @50ms : %ld mA\r\n",
+                 (long)(current_sum * 1000.0f));
+
       uartPrintf(_DEF_UART1, "Ia Min/Max  : %ld / %ld mA\r\n",
                  (long)(current_min.a * 1000.0f),
                  (long)(current_max.a * 1000.0f));
@@ -900,6 +963,20 @@ void apMain(void)
       uartPrintf(_DEF_UART1, "Ic Min/Max  : %ld / %ld mA\r\n",
                  (long)(current_min.c * 1000.0f),
                  (long)(current_max.c * 1000.0f));
+
+      motor_abc_f_t avg;
+      motorCurrentDiagGetAverage(&avg);
+
+      uartPrintf(_DEF_UART1,
+                 "Ia/Ib/Ic AVG : %ld / %ld / %ld mA\r\n",
+                 (long)(avg.a * 1000.0f),
+                 (long)(avg.b * 1000.0f),
+                 (long)(avg.c * 1000.0f));
+
+      uartPrintf(_DEF_UART1,
+                 "Iabc SUM AVG : %ld mA\r\n",
+                 (long)((avg.a + avg.b + avg.c) * 1000.0f));
+
   #if CURRENT_ADC_NOISE_TEST_ENABLE
 
   noise_count = motorCurrentNoiseGetCount();
@@ -1082,9 +1159,8 @@ void apMain(void)
       "Iq Profile : 0 -> %ld -> 0 mA\r\n",
       (long)(CURRENT_ROTATION_REF_A * 1000.0f));
 
-  uartPrintf(
-      _DEF_UART1,
-      "Iq Hold    : 100 ~ 1100 ms\r\n");
+  uartPrintf(_DEF_UART1,
+      "Iq Hold    : 10 ~ 110 ms\r\n");
     #elif CURRENT_IQ_STEP_TEST_ENABLE
 
   uartPrintf(_DEF_UART1,

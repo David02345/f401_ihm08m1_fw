@@ -22,6 +22,10 @@ static volatile bool current_diag_active = false;
 static volatile bool current_diag_done = false;
 static volatile motor_abc_f_t current_diag_i_min;
 static volatile motor_abc_f_t current_diag_i_max;
+static volatile motor_abc_f_t current_snapshot_50ms;
+static volatile motor_abc_f_t current_avg_sum;
+static volatile uint32_t current_avg_count = 0U;
+
 static volatile float current_diag_id_sum = 0.0f;
 static volatile float current_diag_iq_sum = 0.0f;
 #define CURRENT_STARTUP_SETTLE_SAMPLES  4U
@@ -676,7 +680,14 @@ void motorCurrentDiagStart(void)
   current_diag_i_max.b = 0.0f;
   current_diag_i_max.c = 0.0f;
 
+  current_snapshot_50ms.a = 0.0f;
+  current_snapshot_50ms.b = 0.0f;
+  current_snapshot_50ms.c = 0.0f;
 
+  current_avg_sum.a = 0.0f;
+  current_avg_sum.b = 0.0f;
+  current_avg_sum.c = 0.0f;
+  current_avg_count = 0U;
 
   // [L TEST]
   current_l_test_count = 0U;
@@ -955,6 +966,17 @@ void motorCurrentDiagGetTripSnapshot(motor_abc_u16_t *raw,
 
 #endif
 
+void motorCurrentDiagGetSnapshot50ms(motor_abc_f_t *snapshot)
+{
+    if (snapshot == NULL)
+    {
+        return;
+    }
+
+    snapshot->a = current_snapshot_50ms.a;
+    snapshot->b = current_snapshot_50ms.b;
+    snapshot->c = current_snapshot_50ms.c;
+}
 
 /* 테스트 함수들 -> Diag... */
 
@@ -1469,6 +1491,17 @@ static void motorNeutralPwmDiag(void)
     return;
   }
 
+#if CURRENT_ROTATION_TEST_ENABLE
+
+if (current_diag_sample_count == 1000U)
+{
+    current_snapshot_50ms.a = motor_monitor.ia;
+    current_snapshot_50ms.b = motor_monitor.ib;
+    current_snapshot_50ms.c = motor_monitor.ic;
+}
+
+#endif
+
 #if !CURRENT_ADC_NOISE_TEST_ENABLE
 
 #if CURRENT_ROTATION_TEST_ENABLE
@@ -1700,7 +1733,20 @@ else if (current_diag_sample_count ==
       current_diag_i_max.c = motor_monitor.ic;
     }
   }
+  #if CURRENT_ROTATION_TEST_ENABLE
 
+  // 30ms ~ 100ms 구간의 3상 전류 누적
+  if ((current_diag_sample_count >= 600U) &&
+      (current_diag_sample_count < 2000U))
+  {
+    current_avg_sum.a += motor_monitor.ia;
+    current_avg_sum.b += motor_monitor.ib;
+    current_avg_sum.c += motor_monitor.ic;
+
+    current_avg_count++;
+  }
+
+  #endif
 
   /*
    * motorCurrentLoop()에서 0.8 A trip이 발생했다면
@@ -2498,6 +2544,22 @@ motor_fault_t motorGetFault(void)
   return motor_fault;
 }
 
+void motorCurrentDiagGetAverage(motor_abc_f_t *avg)
+{
+    if (avg == NULL)
+        return;
+
+    avg->a = 0.0f;
+    avg->b = 0.0f;
+    avg->c = 0.0f;
+
+    if (current_avg_count == 0U)
+        return;
+
+    avg->a = current_avg_sum.a / current_avg_count;
+    avg->b = current_avg_sum.b / current_avg_count;
+    avg->c = current_avg_sum.c / current_avg_count;
+}
 
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (CURRENT_FOC_BENCH_ENABLE == 1U)
 
@@ -2564,3 +2626,5 @@ bool motorGetHallCalibrationEvent(int8_t *sector, int8_t *direction, float *thet
 }
 
 #endif
+
+

@@ -131,7 +131,8 @@ void motorCurrentDiagStart(void);
 uint32_t motorCurrentNoiseGetCount(void);
 bool motorCurrentNoiseGetSample(uint32_t index, motor_abc_u16_t *raw, motor_abc_f_t *current);
 void motorCurrentDiagGetTripSnapshot(motor_abc_u16_t *raw, motor_abc_f_t *current);
-
+void motorCurrentDiagGetSnapshot50ms(motor_abc_f_t *snapshot);
+void motorCurrentDiagGetAverage(motor_abc_f_t *avg);
 // 분리 예정
 bool motorCurrentDiagIsDone(void);
 uint32_t motorCurrentDiagGetSampleCount(void);
