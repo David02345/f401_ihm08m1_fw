@@ -90,46 +90,6 @@ void apInit(void)
 {
   uartOpen(_DEF_UART1, 57600);
 }
-#if 0
-void apMain(void)
-{
-  delay(1000);
-
-  pwmStart();
-  pwmEnableOutput();
-
-  uartPrintf(_DEF_UART1,
-      "\r\n===== HARDWARE BKIN TEST =====\r\n");
-
-  uartPrintf(_DEF_UART1,
-      "MOE Before : %lu\r\n",
-      (unsigned long)((TIM1->BDTR & TIM_BDTR_MOE) != 0U));
-
-  uartPrintf(_DEF_UART1,
-      "Connect PA6(BKIN) to GND\r\n");
-
-  while ((pwmIsBreakFault() == false) &&
-         ((TIM1->BDTR & TIM_BDTR_MOE) != 0U))
-  {
-    delay(1);
-  }
-
-  uartPrintf(_DEF_UART1,
-      "MOE After  : %lu\r\n",
-      (unsigned long)((TIM1->BDTR & TIM_BDTR_MOE) != 0U));
-
-  uartPrintf(_DEF_UART1,
-      "Break IRQ  : %u\r\n",
-      (unsigned int)pwmIsBreakFault());
-
-  pwmStop();
-
-  while (1)
-  {
-    delay(1000);
-  }
-}
-#endif
 
 void apMain(void)
 {

@@ -1071,40 +1071,7 @@ void motorLowSpeedTask(void)
     return;
   }
 }
-/*
-void motorLowSpeedTask(void)
-{
-  if(motor_state == MOTOR_STATE_FAULT)
-  {
-    return;
-  }
 
-#if _USE_HALL_SENSOR
-    hallUpdateTimeout();
-#endif
-
-  if (pwmIsBreakFault())
-  {
-    motorSetFault(MOTOR_FAULT_BKIN);
-    return;
-  }
-
-  if(adcUpdateRegular() != true)
-  {
-    motorSetFault(MOTOR_FAULT_ADC_REGULAR_FAIL);
-    return;
-  }
-  motor_vbus = adcGetVbusVoltage();
-
-  if(motor_vbus < MOTOR_VBUS_MIN)
-  {
-    motorSetFault(MOTOR_FAULT_VBUS_LOW);
-    return;
-  }
-  motor_speed_cmd_raw = adcGetSpeedRaw();
-  motor_temp_raw = adcGetTempRaw();
-}
-*/
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
     (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
 
@@ -2103,47 +2070,7 @@ static void motorOpenLoop(void)
 }
 
 #endif
-/*
-#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
-static void motorOpenLoop(void)
-{
-  motor_abc_f_t i_abc;
 
-  if(motor_state != MOTOR_STATE_OPEN_LOOP)
-  {
-    return;
-  }
-
-  adcGetPhaseCurrent(&i_abc);
-
-  motor_monitor.ia = i_abc.a;
-  motor_monitor.ib = i_abc.b;
-  motor_monitor.ic = i_abc.c;
-
-  open_loop_speed_e += OPEN_LOOP_ACCEL_E * OPEN_DT;
-  open_loop_speed_e = clampFloat(open_loop_speed_e, 0.5f, OPEN_LOOP_TARGET_SPEED);
-  open_loop_theta_e += open_loop_speed_e * OPEN_DT;
-  open_loop_theta_e = wrapFloat(open_loop_theta_e, 0.0f, 2.0f * PI);
-  focRunOpenLoopVoltage(open_loop_vd, open_loop_vq, open_loop_theta_e, motor_vbus, &motor_duty);
-
-  motor_monitor.theta_e = open_loop_theta_e;
-
-  motor_monitor.id_ref  = 0.0f;
-  motor_monitor.id_meas = 0.0f;
-  motor_monitor.iq_ref  = 0.0f;
-  motor_monitor.iq_meas = 0.0f;
-
-  motor_monitor.vd_cmd  = open_loop_vd;
-  motor_monitor.vq_cmd  = open_loop_vq;
-
-  motor_monitor.duty_u = motor_duty.u;
-  motor_monitor.duty_v = motor_duty.v;
-  motor_monitor.duty_w = motor_duty.w;
-
-  pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
-}
-#endif
-*/
 void motorControlUpdate(void)
 {
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
