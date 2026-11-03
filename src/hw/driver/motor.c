@@ -161,6 +161,8 @@ static volatile float foc_bench_ic_max = 0.0f;
 
 #endif
 
+static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e);
+
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 
 static float open_loop_theta_e = 0.0f;
@@ -170,6 +172,226 @@ static float open_loop_vq = 0.0f;
 
 static uint32_t open_loop_align_count = 0U;
 static bool open_loop_alignment_done = false;
+
+
+
+
+#if OPEN_LOOP_DIAG_ENABLE == 1U
+static volatile motor_ol_diag_t open_loop_diag;
+static uint8_t open_loop_diag_prev_raw;
+static uint8_t open_loop_diag_prev_cached;
+
+// Independent of hall.c cache and EXTI.  The firmware has three Hall GPIOs.
+static uint8_t motorOpenLoopDiagReadPins(void)
+{
+  uint8_t state = 0U;
+  if ((GPIOA->IDR & GPIO_PIN_15) != 0U) state |= 1U;
+  if ((GPIOB->IDR & GPIO_PIN_3) != 0U) state |= 2U;
+  if ((GPIOB->IDR & GPIO_PIN_10) != 0U) state |= 4U;
+  return state;
+}
+
+static void motorOpenLoopDiagRecordEdge(uint32_t n, uint8_t raw, uint8_t cached,
+                                        const motor_abc_f_t *current)
+{
+  uint32_t k = open_loop_diag.edge_count;
+  if (k < OPEN_LOOP_DIAG_MAX_EDGES)
+  {
+    open_loop_diag.edges[k].sample = n;
+    open_loop_diag.edges[k].hall_raw = raw;
+    open_loop_diag.edges[k].hall_cached = cached;
+    open_loop_diag.edges[k].hall_sector = hallGetSectorIndex();
+    open_loop_diag.edges[k].theta_e = open_loop_theta_e;
+    open_loop_diag.edges[k].ia = current->a;
+    open_loop_diag.edges[k].ib = current->b;
+    open_loop_diag.edges[k].ic = current->c;
+    open_loop_diag.edge_count = k + 1U;
+  }
+  else
+  {
+    open_loop_diag.edge_overflow++;
+  }
+}
+
+static void motorOpenLoopDiagLog(uint32_t n, uint8_t raw, uint8_t cached,
+                                 const motor_abc_f_t *current)
+{
+  uint32_t k = open_loop_diag.log_count;
+  if (k >= OPEN_LOOP_DIAG_MAX_LOGS) return;
+
+  open_loop_diag.log[k].sample = n;
+  open_loop_diag.log[k].hall_raw = raw;
+  open_loop_diag.log[k].hall_cached = cached;
+  open_loop_diag.log[k].hall_valid = hallIsValid() ? 1U : 0U;
+  open_loop_diag.log[k].hall_sector = hallGetSectorIndex();
+  open_loop_diag.log[k].hall_irq = hallGetIrqCount();
+  open_loop_diag.log[k].hall_transition = hallGetTransitionCount();
+  open_loop_diag.log[k].theta_e = open_loop_theta_e;
+  open_loop_diag.log[k].ia = current->a;
+  open_loop_diag.log[k].ib = current->b;
+  open_loop_diag.log[k].ic = current->c;
+  open_loop_diag.log[k].iq_ref = motor_monitor.iq_ref;
+  open_loop_diag.log[k].id_meas = motor_monitor.id_meas;
+  open_loop_diag.log[k].iq_meas = motor_monitor.iq_meas;
+  open_loop_diag.log[k].vd = open_loop_vd;
+  open_loop_diag.log[k].vq = open_loop_vq;
+  open_loop_diag.log[k].duty_u = motor_duty.u;
+  open_loop_diag.log[k].duty_v = motor_duty.v;
+  open_loop_diag.log[k].duty_w = motor_duty.w;
+  open_loop_diag.log_count = k + 1U;
+}
+
+// One-direction torque pulse with FROZEN Hall centre angle, not an angle sweep.
+// PWM is disabled in this ISR on the first real Hall input change or on timeout.
+static void motorOpenLoopDiagnostic(void)
+{
+  if (motor_state != MOTOR_STATE_OPEN_LOOP || open_loop_diag.completed) return;
+
+  // MOE is armed by ap.c only after motorStart() returns.
+  if (((TIM1->BDTR & TIM_BDTR_MOE) == 0U) &&
+      (open_loop_diag.sample_count == 0U)) return;
+
+  uint32_t n = open_loop_diag.sample_count;
+  motor_abc_f_t current;
+  adcGetPhaseCurrent(&current);
+  motor_monitor.ia = current.a;
+  motor_monitor.ib = current.b;
+  motor_monitor.ic = current.c;
+
+  // RAW GPIO, separately from the Hall EXTI/cache pathway.
+  uint8_t raw = motorOpenLoopDiagReadPins();
+  uint8_t cached = hallGetState();
+  bool raw_changed = (raw != open_loop_diag_prev_raw);
+  bool cache_changed = (cached != open_loop_diag_prev_cached);
+  if (raw_changed)
+  {
+    open_loop_diag.raw_edge_total++;
+    motorOpenLoopDiagRecordEdge(n, raw, cached, &current);
+    open_loop_diag_prev_raw = raw;
+  }
+  if (cache_changed)
+  {
+    open_loop_diag.cached_edge_total++;
+    if (!raw_changed)
+      motorOpenLoopDiagRecordEdge(n, raw, cached, &current);
+    open_loop_diag_prev_cached = cached;
+  }
+
+  float a = fabsf(current.a), b = fabsf(current.b), c = fabsf(current.c);
+  if (a > open_loop_diag.peak_a) open_loop_diag.peak_a = a;
+  if (b > open_loop_diag.peak_b) open_loop_diag.peak_b = b;
+  if (c > open_loop_diag.peak_c) open_loop_diag.peak_c = c;
+
+  // Hardware Break / MOE / measured phase-current guard, before new PWM duty.
+  if ((pwmIsBreakFault() == true) || ((TIM1->SR & TIM_SR_BIF) != 0U))
+  {
+    open_loop_diag.bkin_trip = 1U;
+    motor_fault = MOTOR_FAULT_BKIN;
+  }
+  else if ((TIM1->BDTR & TIM_BDTR_MOE) == 0U)
+  {
+    open_loop_diag.early_moe_off = 1U;
+    motor_fault = MOTOR_FAULT_INIT_FAIL;
+  }
+  else if ((a > OPEN_LOOP_DIAG_OC_LIMIT_A) ||
+           (b > OPEN_LOOP_DIAG_OC_LIMIT_A) ||
+           (c > OPEN_LOOP_DIAG_OC_LIMIT_A))
+  {
+    open_loop_diag.oc_trip = 1U;
+    open_loop_diag.trip_a = current.a;
+    open_loop_diag.trip_b = current.b;
+    open_loop_diag.trip_c = current.c;
+    open_loop_diag.trip_sample = n;
+    motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
+  }
+
+  if (motor_fault != MOTOR_FAULT_NONE)
+  {
+    pwmDisableOutput();
+    motor_state = MOTOR_STATE_FAULT;
+    open_loop_diag.stop_sample = n;
+    open_loop_diag.sample_count = n + 1U;
+    open_loop_diag.irq_at_end = hallGetIrqCount();
+    open_loop_diag.transition_at_end = hallGetTransitionCount();
+    open_loop_diag.completed = 1U;
+    return;
+  }
+
+  // Capture Hall counts at the end of the 10 ms zero-current settling period.
+  if (n == OPEN_LOOP_DIAG_SETTLE_SAMPLES)
+  {
+    open_loop_diag.raw_edges_before_drive = open_loop_diag.raw_edge_total;
+    open_loop_diag.cached_edges_before_drive = open_loop_diag.cached_edge_total;
+  }
+
+  // The purpose of this experiment is FIRST motion, not sustained rotation.
+  // Stop on the FIRST edge after torque begins, including a raw-only edge.
+  if ((n >= OPEN_LOOP_DIAG_SETTLE_SAMPLES) && (raw_changed || cache_changed))
+  {
+    pwmDisableOutput();
+    open_loop_diag.stopped_on_hall_edge = 1U;
+    open_loop_diag.stop_sample = n;
+    motorOpenLoopDiagLog(n, raw, cached, &current); // final snapshot
+    open_loop_diag.sample_count = n + 1U;
+    open_loop_diag.irq_at_end = hallGetIrqCount();
+    open_loop_diag.transition_at_end = hallGetTransitionCount();
+    open_loop_diag.completed = 1U;
+    return;
+  }
+
+  // Fixed rotor angle: no artificial sweeping of the stator field.
+  // The CURRENT PI applies +Iq continuously up to the 750 ms bound.
+  const float iq_cmd = (n < OPEN_LOOP_DIAG_SETTLE_SAMPLES) ?
+                       0.0f : OPEN_LOOP_DIAG_IQ_REF_A;
+  open_loop_theta_e = open_loop_diag.theta_fixed;
+  open_loop_vd = 0.0f; // overwritten by the PI monitor below
+  open_loop_vq = 0.0f;
+  motorCurrentLoop(0.0f, iq_cmd, open_loop_theta_e);
+
+  // The current controller has its own software OC protection. Its trip must
+  // produce a completed diagnostic so ap.c can stop peripherals and print it.
+  if (motor_state == MOTOR_STATE_FAULT || motor_fault != MOTOR_FAULT_NONE)
+  {
+    if (motor_fault == MOTOR_FAULT_SW_OVERCURRENT)
+    {
+      open_loop_diag.oc_trip = 1U;
+      open_loop_diag.trip_a = current.a;
+      open_loop_diag.trip_b = current.b;
+      open_loop_diag.trip_c = current.c;
+      open_loop_diag.trip_sample = n;
+    }
+    pwmDisableOutput();
+    open_loop_diag.stop_sample = n;
+    open_loop_diag.sample_count = n + 1U;
+    open_loop_diag.irq_at_end = hallGetIrqCount();
+    open_loop_diag.transition_at_end = hallGetTransitionCount();
+    open_loop_diag.completed = 1U;
+    return;
+  }
+
+  open_loop_vd = motor_monitor.vd_cmd;
+  open_loop_vq = motor_monitor.vq_cmd;
+  if ((n % OPEN_LOOP_DIAG_LOG_DIVIDER) == 0U ||
+      n == OPEN_LOOP_DIAG_SETTLE_SAMPLES ||
+      n == (OPEN_LOOP_DIAG_SETTLE_SAMPLES + 200U))
+  {
+    motorOpenLoopDiagLog(n, raw, cached, &current);
+  }
+
+  open_loop_diag.sample_count = n + 1U;
+  if (open_loop_diag.sample_count >= OPEN_LOOP_DIAG_TOTAL_SAMPLES)
+  {
+    pwmDisableOutput(); // ISR-bounded timeout, not dependent on UART task
+    open_loop_diag.stop_sample = open_loop_diag.sample_count;
+    open_loop_diag.irq_at_end = hallGetIrqCount();
+    open_loop_diag.transition_at_end = hallGetTransitionCount();
+    open_loop_diag.completed = 1U;
+  }
+}
+#endif  // OPEN_LOOP_DIAG_ENABLE
+
+
+
 
 #if _USE_HALL_OFFSET_CALIBRATION
 
@@ -182,9 +404,6 @@ static int8_t hall_cal_prev_sector = -1;
 
 #endif
 #endif
-static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e);
-
-
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
     (CURRENT_ADC_RAW_SCAN_ENABLE == 1U)
 
@@ -545,6 +764,16 @@ void motorStart(void)
   motor_speed_cmd_raw = adcGetSpeedRaw();
   motor_temp_raw = adcGetTempRaw();
 
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (OPEN_LOOP_DIAG_ENABLE == 1U)
+  // This deliberately low-voltage diagnostic is NOT approved for 24 V VBUS.
+  if (motor_vbus > 16.0f)
+  {
+    motorSetFault(MOTOR_FAULT_INIT_FAIL);
+    return;
+  }
+#endif
+
+
   if(motor_vbus < MOTOR_VBUS_MIN)
   {
     motorSetFault(MOTOR_FAULT_VBUS_LOW);
@@ -584,6 +813,32 @@ void motorStart(void)
 
 #elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 
+#if OPEN_LOOP_DIAG_ENABLE == 1U
+  open_loop_diag = (motor_ol_diag_t){0};
+  open_loop_diag_prev_raw = motorOpenLoopDiagReadPins();
+  open_loop_diag_prev_cached = hallGetState();
+  open_loop_diag.irq_at_start = hallGetIrqCount();
+  open_loop_diag.transition_at_start = hallGetTransitionCount();
+  const int8_t start_sector = hallGetSectorIndex();
+  if (!hallIsValid() || start_sector < 0 || start_sector > 5 ||
+      open_loop_diag_prev_raw != open_loop_diag_prev_cached)
+  {
+    motorSetFault(MOTOR_FAULT_HALL_INVALID);
+    return;
+  }
+  open_loop_diag.start_hall = open_loop_diag_prev_raw;
+  // Freeze the Hall SECTOR CENTRE, independent of previous Hall direction.
+  open_loop_diag.theta_fixed = wrapFloat(
+      HALL_ELEC_OFFSET - (float)start_sector * HALL_SECTOR_ANGLE_E,
+      0.0f, 2.0f * PI);
+  open_loop_theta_e = open_loop_diag.theta_fixed;
+  open_loop_speed_e = 0.0f;
+  open_loop_vd = 0.0f;
+  open_loop_vq = 0.0f;
+  open_loop_align_count = 0U;
+  open_loop_alignment_done = false;
+#else
+
 #if _USE_HALL_OFFSET_CALIBRATION
 
   open_loop_theta_e = 0.0f;
@@ -614,6 +869,7 @@ void motorStart(void)
   open_loop_alignment_done = false;
 
 #endif
+#endif  // OPEN_LOOP_DIAG_ENABLE
 
   motor_state = MOTOR_STATE_OPEN_LOOP;
 
@@ -966,6 +1222,7 @@ void motorCurrentDiagGetTripSnapshot(motor_abc_u16_t *raw,
 
 #endif
 
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
 void motorCurrentDiagGetSnapshot50ms(motor_abc_f_t *snapshot)
 {
     if (snapshot == NULL)
@@ -977,6 +1234,7 @@ void motorCurrentDiagGetSnapshot50ms(motor_abc_f_t *snapshot)
     snapshot->b = current_snapshot_50ms.b;
     snapshot->c = current_snapshot_50ms.c;
 }
+#endif
 
 /* 테스트 함수들 -> Diag... */
 
@@ -1071,40 +1329,7 @@ void motorLowSpeedTask(void)
     return;
   }
 }
-/*
-void motorLowSpeedTask(void)
-{
-  if(motor_state == MOTOR_STATE_FAULT)
-  {
-    return;
-  }
 
-#if _USE_HALL_SENSOR
-    hallUpdateTimeout();
-#endif
-
-  if (pwmIsBreakFault())
-  {
-    motorSetFault(MOTOR_FAULT_BKIN);
-    return;
-  }
-
-  if(adcUpdateRegular() != true)
-  {
-    motorSetFault(MOTOR_FAULT_ADC_REGULAR_FAIL);
-    return;
-  }
-  motor_vbus = adcGetVbusVoltage();
-
-  if(motor_vbus < MOTOR_VBUS_MIN)
-  {
-    motorSetFault(MOTOR_FAULT_VBUS_LOW);
-    return;
-  }
-  motor_speed_cmd_raw = adcGetSpeedRaw();
-  motor_temp_raw = adcGetTempRaw();
-}
-*/
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && \
     (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
 
@@ -1787,15 +2012,18 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
   motor_monitor.ib = i_abc.b;
   motor_monitor.ic = i_abc.c;
 
-  if ((fabsf(i_abc.a) > CURRENT_TEST_OC_LIMIT_A) ||
-      (fabsf(i_abc.b) > CURRENT_TEST_OC_LIMIT_A) ||
-      (fabsf(i_abc.c) > CURRENT_TEST_OC_LIMIT_A))
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (OPEN_LOOP_DIAG_ENABLE == 1U)
+  const float current_loop_oc_limit = OPEN_LOOP_DIAG_OC_LIMIT_A;
+#else
+  const float current_loop_oc_limit = CURRENT_TEST_OC_LIMIT_A;
+#endif
+  if ((fabsf(i_abc.a) > current_loop_oc_limit) ||
+      (fabsf(i_abc.b) > current_loop_oc_limit) ||
+      (fabsf(i_abc.c) > current_loop_oc_limit))
   {
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
     motor_abc_u16_t raw;
 
-    /*
-     * SW overcurrent를 발생시킨 ADC sample 저장
-     */
     adcGetCurrentRaw(&raw);
 
     current_trip_raw_a = raw.a;
@@ -1805,7 +2033,7 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
     current_trip_ia = i_abc.a;
     current_trip_ib = i_abc.b;
     current_trip_ic = i_abc.c;
-
+#endif
     pwmDisableOutput();
 
     motor_fault = MOTOR_FAULT_SW_OVERCURRENT;
@@ -1928,6 +2156,10 @@ static void motorSpeedLoop(void)
 
 static void motorOpenLoop(void)
 {
+#if OPEN_LOOP_DIAG_ENABLE == 1U
+  motorOpenLoopDiagnostic();
+#else
+
   motor_abc_f_t i_abc;
 
 #if _USE_HALL_OFFSET_CALIBRATION
@@ -2100,50 +2332,11 @@ static void motorOpenLoop(void)
   pwmSetDuty(motor_duty.u,
              motor_duty.v,
              motor_duty.w);
+#endif  // OPEN_LOOP_DIAG_ENABLE
 }
 
 #endif
-/*
-#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
-static void motorOpenLoop(void)
-{
-  motor_abc_f_t i_abc;
 
-  if(motor_state != MOTOR_STATE_OPEN_LOOP)
-  {
-    return;
-  }
-
-  adcGetPhaseCurrent(&i_abc);
-
-  motor_monitor.ia = i_abc.a;
-  motor_monitor.ib = i_abc.b;
-  motor_monitor.ic = i_abc.c;
-
-  open_loop_speed_e += OPEN_LOOP_ACCEL_E * OPEN_DT;
-  open_loop_speed_e = clampFloat(open_loop_speed_e, 0.5f, OPEN_LOOP_TARGET_SPEED);
-  open_loop_theta_e += open_loop_speed_e * OPEN_DT;
-  open_loop_theta_e = wrapFloat(open_loop_theta_e, 0.0f, 2.0f * PI);
-  focRunOpenLoopVoltage(open_loop_vd, open_loop_vq, open_loop_theta_e, motor_vbus, &motor_duty);
-
-  motor_monitor.theta_e = open_loop_theta_e;
-
-  motor_monitor.id_ref  = 0.0f;
-  motor_monitor.id_meas = 0.0f;
-  motor_monitor.iq_ref  = 0.0f;
-  motor_monitor.iq_meas = 0.0f;
-
-  motor_monitor.vd_cmd  = open_loop_vd;
-  motor_monitor.vq_cmd  = open_loop_vq;
-
-  motor_monitor.duty_u = motor_duty.u;
-  motor_monitor.duty_v = motor_duty.v;
-  motor_monitor.duty_w = motor_duty.w;
-
-  pwmSetDuty(motor_duty.u, motor_duty.v, motor_duty.w);
-}
-#endif
-*/
 void motorControlUpdate(void)
 {
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
@@ -2543,6 +2736,7 @@ motor_fault_t motorGetFault(void)
 {
   return motor_fault;
 }
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (CURRENT_NEUTRAL_DIAG_ENABLE == 1U)
 
 void motorCurrentDiagGetAverage(motor_abc_f_t *avg)
 {
@@ -2560,6 +2754,8 @@ void motorCurrentDiagGetAverage(motor_abc_f_t *avg)
     avg->b = current_avg_sum.b / current_avg_count;
     avg->c = current_avg_sum.c / current_avg_count;
 }
+
+#endif
 
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT) && (CURRENT_FOC_BENCH_ENABLE == 1U)
 
@@ -2591,6 +2787,21 @@ void motorFocBenchGetStats( uint32_t *count, uint32_t *total_cycles, uint32_t *m
 
 #endif
 
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (OPEN_LOOP_DIAG_ENABLE == 1U)
+bool motorOpenLoopDiagIsDone(void)
+{
+  return open_loop_diag.completed != 0U;
+}
+
+void motorOpenLoopDiagGet(motor_ol_diag_t *out)
+{
+  if (out == NULL) return;
+  uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+  *out = open_loop_diag;
+  if (primask == 0U) __enable_irq();
+}
+#endif
 
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (_USE_HALL_OFFSET_CALIBRATION)
 

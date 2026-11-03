@@ -162,6 +162,31 @@
 #define OPEN_LOOP_TARGET_VQ               0.4f
 
 #define OPEN_LOOP_TEST_TIME_MS            8000U
+
+/** ISR-bounded Hall-locked torque STARTUP diagnostic (NO manual shaft motion).
+ * Reuses the VERIFIED 20 kHz current PI controller with the initially measured
+ * Hall sector-centre angle FROZEN until the first actual Hall GPIO/cache edge.
+ * This is NOT a current PI tuning/step-response test: it measures first motion.
+ * Software OC acts AFTER the ADC sample; keep independent PSU/BKIN protection.
+ */
+#define OPEN_LOOP_DIAG_ENABLE              1U
+#define OPEN_LOOP_DIAG_SETTLE_MS           10U   // neutral PWM before applying torque
+#define OPEN_LOOP_DIAG_DRIVE_MS            200U  // maximum torque-on time
+#define OPEN_LOOP_DIAG_IQ_REF_A            0.5f  // low-current recovery diagnostic
+#define OPEN_LOOP_DIAG_OC_LIMIT_A          0.8f  // measured per-phase software trip
+#define OPEN_LOOP_DIAG_LOG_DIVIDER         200U  // every 10 ms at 20 kHz
+#define OPEN_LOOP_DIAG_MAX_LOGS            24U
+#define OPEN_LOOP_DIAG_MAX_EDGES           24U
+#define OPEN_LOOP_DIAG_SETTLE_SAMPLES      ((OPEN_LOOP_DIAG_SETTLE_MS * 1000U) / 50U)
+#define OPEN_LOOP_DIAG_TOTAL_SAMPLES       (((OPEN_LOOP_DIAG_SETTLE_MS + OPEN_LOOP_DIAG_DRIVE_MS) * 1000U) / 50U)
+#define OPEN_LOOP_DIAG_TOTAL_MS            (OPEN_LOOP_DIAG_SETTLE_MS + OPEN_LOOP_DIAG_DRIVE_MS)
+
+#if OPEN_LOOP_DIAG_ENABLE
+#if OPEN_LOOP_DIAG_SETTLE_MS < 1U || OPEN_LOOP_DIAG_DRIVE_MS > 1000U
+#error "Check Hall-locked startup diagnostic timing"
+#endif
+#endif
+
 /**
   * @}
   */
@@ -198,7 +223,7 @@
 
 // 신규 Hall FOC 회전 진단
 #define CURRENT_ROTATION_TEST_ENABLE      1U
-#define CURRENT_ROTATION_REF_A            1.0f
+#define CURRENT_ROTATION_REF_A            0.3f
 #define CURRENT_ROTATION_START_SAMPLE     200U
 #define CURRENT_ROTATION_END_SAMPLE       2200U
 #define CURRENT_ROTATION_LOG_DIVIDER      200U
@@ -243,7 +268,7 @@
 
 #define CURRENT_LOOP_TEST_SAMPLE_COUNT    ((CURRENT_LOOP_TEST_TIME_MS * 1000U) / CURRENT_LOOP_PERIOD_US)
 
-#define CURRENT_TEST_OC_LIMIT_A           1.5f
+#define CURRENT_TEST_OC_LIMIT_A           0.8f
 
 #define CURRENT_TEST_V_ALPHA              0.00f
 #define CURRENT_TEST_V_BETA               0.04f

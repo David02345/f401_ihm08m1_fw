@@ -86,50 +86,108 @@ static void apPrintCurrentDiagTiming(void)
 
 #endif
 
+
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (OPEN_LOOP_DIAG_ENABLE == 1U)
+static void apPrintOpenLoopDiagnosis(void)
+{
+  static motor_ol_diag_t result; // large trace on static RAM, not task stack
+  motorOpenLoopDiagGet(&result);
+  uartPrintf(_DEF_UART1, "\r\n===== HALL-LOCKED TORQUE STARTUP DIAG =====\r\n");
+  uartPrintf(_DEF_UART1, "Start Hall: %u, Frozen Theta: %ld mrad, Iq cmd: %ld mA\r\n",
+             (unsigned int)result.start_hall,
+             (long)(result.theta_fixed * 1000.0f),
+             (long)(OPEN_LOOP_DIAG_IQ_REF_A * 1000.0f));
+  uartPrintf(_DEF_UART1, "Stop: %s at %lu ms (first edge or time limit)\r\n",
+             result.stopped_on_hall_edge ? "HALL_EDGE" :
+             (motorGetFault() != MOTOR_FAULT_NONE ? "FAULT" : "TIME_LIMIT"),
+             (unsigned long)(result.stop_sample / 20U));
+  uartPrintf(_DEF_UART1, "Samples: %lu (%lu ms), Done: %u, Fault: %d\r\n",
+             (unsigned long)result.sample_count,
+             (unsigned long)(result.sample_count / 20U),
+             (unsigned int)result.completed, (int)motorGetFault());
+  uartPrintf(_DEF_UART1, "Trips OC/BKIN/MOE: %u / %u / %u at sample %lu\r\n",
+             (unsigned int)result.oc_trip, (unsigned int)result.bkin_trip,
+             (unsigned int)result.early_moe_off, (unsigned long)result.trip_sample);
+  uartPrintf(_DEF_UART1, "Trip Ia/Ib/Ic: %ld / %ld / %ld mA\r\n",
+             (long)(result.trip_a*1000.0f), (long)(result.trip_b*1000.0f),
+             (long)(result.trip_c*1000.0f));
+  uartPrintf(_DEF_UART1, "Peak |Ia/Ib/Ic|: %ld / %ld / %ld mA\r\n",
+             (long)(result.peak_a*1000.0f), (long)(result.peak_b*1000.0f),
+             (long)(result.peak_c*1000.0f));
+  uartPrintf(_DEF_UART1, "Hall GPIO changes: %lu, cache changes: %lu\r\n",
+             (unsigned long)result.raw_edge_total,
+             (unsigned long)result.cached_edge_total);
+  uartPrintf(_DEF_UART1, "Hall GPIO SETTLE/DRIVE: %lu / %lu ; cache SETTLE/DRIVE: %lu / %lu\r\n",
+             (unsigned long)result.raw_edges_before_drive,
+             (unsigned long)(result.raw_edge_total - result.raw_edges_before_drive),
+             (unsigned long)result.cached_edges_before_drive,
+             (unsigned long)(result.cached_edge_total - result.cached_edges_before_drive));
+  uartPrintf(_DEF_UART1, "Hall IRQ: %lu -> %lu ; Transitions: %lu -> %lu\r\n",
+             (unsigned long)result.irq_at_start, (unsigned long)result.irq_at_end,
+             (unsigned long)result.transition_at_start,
+             (unsigned long)result.transition_at_end);
+  uartPrintf(_DEF_UART1, "Hall edge (ms,GPIO,cache,sector,theta_mrad,Ia,Ib,Ic_mA):\r\n");
+  for (uint32_t i = 0U; i < result.edge_count; i++)
+  {
+    const motor_ol_diag_edge_t *e = &result.edges[i];
+    uartPrintf(_DEF_UART1, "%lu,%u,%u,%d,%ld,%ld,%ld,%ld\r\n",
+               (unsigned long)(e->sample / 20U),
+               (unsigned int)e->hall_raw,
+               (unsigned int)e->hall_cached,
+               (int)e->hall_sector,
+               (long)(e->theta_e * 1000.0f),
+               (long)(e->ia * 1000.0f),
+               (long)(e->ib * 1000.0f),
+               (long)(e->ic * 1000.0f));
+  }
+  if (result.edge_overflow)
+    uartPrintf(_DEF_UART1, "EDGE LOG OVERFLOW: %lu\r\n",
+               (unsigned long)result.edge_overflow);
+
+  uartPrintf(_DEF_UART1,
+    "ms,theta_mrad,IqRef_mA,Id_mA,Iq_mA,Vd_mV,Vq_mV,Ia_mA,Ib_mA,Ic_mA,Sum_mA,raw,cache,IRQ,trans,DutyU,V,W_permille\r\n");
+  for (uint32_t i = 0U; i < result.log_count; i++)
+  {
+    const motor_ol_diag_sample_t *p = &result.log[i];
+    uartPrintf(_DEF_UART1,
+       "%lu,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%u,%u,%lu,%lu,%ld,%ld,%ld\r\n",
+       (unsigned long)(p->sample / 20U),
+       (long)(p->theta_e*1000.0f),
+       (long)(p->iq_ref*1000.0f),
+       (long)(p->id_meas*1000.0f), (long)(p->iq_meas*1000.0f),
+       (long)(p->vd*1000.0f), (long)(p->vq*1000.0f),
+       (long)(p->ia*1000.0f), (long)(p->ib*1000.0f),
+       (long)(p->ic*1000.0f),
+       (long)((p->ia+p->ib+p->ic)*1000.0f),
+       (unsigned int)p->hall_raw, (unsigned int)p->hall_cached,
+       (unsigned long)p->hall_irq, (unsigned long)p->hall_transition,
+       (long)(p->duty_u*1000.0f), (long)(p->duty_v*1000.0f),
+       (long)(p->duty_w*1000.0f));
+  }
+  if (result.stopped_on_hall_edge &&
+      result.raw_edge_total > result.raw_edges_before_drive)
+    uartPrintf(_DEF_UART1, "DIAG: RAW HALL GPIO CHANGED DURING +Iq - PWM OFF.\r\n");
+  else if (result.stopped_on_hall_edge &&
+           result.cached_edge_total > result.cached_edges_before_drive)
+    uartPrintf(_DEF_UART1, "DIAG: CACHE EDGE ONLY; compare with RAW GPIO.\r\n");
+  else if ((result.raw_edge_total == result.raw_edges_before_drive) &&
+           (result.cached_edge_total == result.cached_edges_before_drive))
+    uartPrintf(_DEF_UART1, "DIAG: NO HALL EDGE DURING +Iq. Torque, offset or load unresolved.\r\n");
+  else if ((result.raw_edge_total > 0U) && (result.cached_edge_total == 0U))
+    uartPrintf(_DEF_UART1, "DIAG: HALL GPIO CHANGED, CACHE DID NOT: check EXTI/hallUpdate().\r\n");
+  else
+    uartPrintf(_DEF_UART1, "DIAG: PHYSICAL HALL GPIO/EXTI REACTED TO DRIVE.\r\n");
+  uartPrintf(_DEF_UART1, "===== END HALL-LOCKED TORQUE DIAG =====\r\n");
+}
+#endif
+
+
+
 void apInit(void)
 {
   uartOpen(_DEF_UART1, 57600);
 }
-#if 0
-void apMain(void)
-{
-  delay(1000);
-
-  pwmStart();
-  pwmEnableOutput();
-
-  uartPrintf(_DEF_UART1,
-      "\r\n===== HARDWARE BKIN TEST =====\r\n");
-
-  uartPrintf(_DEF_UART1,
-      "MOE Before : %lu\r\n",
-      (unsigned long)((TIM1->BDTR & TIM_BDTR_MOE) != 0U));
-
-  uartPrintf(_DEF_UART1,
-      "Connect PA6(BKIN) to GND\r\n");
-
-  while ((pwmIsBreakFault() == false) &&
-         ((TIM1->BDTR & TIM_BDTR_MOE) != 0U))
-  {
-    delay(1);
-  }
-
-  uartPrintf(_DEF_UART1,
-      "MOE After  : %lu\r\n",
-      (unsigned long)((TIM1->BDTR & TIM_BDTR_MOE) != 0U));
-
-  uartPrintf(_DEF_UART1,
-      "Break IRQ  : %u\r\n",
-      (unsigned int)pwmIsBreakFault());
-
-  pwmStop();
-
-  while (1)
-  {
-    delay(1000);
-  }
-}
-#endif
 
 void apMain(void)
 {
@@ -181,6 +239,8 @@ void apMain(void)
   uint32_t open_loop_start = 0U;
   bool open_loop_stopped = false;
 
+#if OPEN_LOOP_DIAG_ENABLE == 0U
+
   #if _USE_HALL_OFFSET_CALIBRATION
 
     const uint32_t open_loop_test_time_ms =
@@ -192,6 +252,7 @@ void apMain(void)
         OPEN_LOOP_TEST_TIME_MS;
 
   #endif
+#endif // OPEN_LOOP_DIAG_ENABLE == 0U
 #endif
 
 
@@ -215,6 +276,40 @@ void apMain(void)
 #endif
 
   delay(1000);
+
+#if 0  // 실제 Hall GPIO 관찰 전용
+
+  pwmDisableOutput();
+
+uint8_t prev = 0xFF;
+
+while (1)
+{
+    uint8_t h1 =
+        HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_15) ? 1U : 0U;
+
+    uint8_t h2 =
+        HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_3) ? 1U : 0U;
+
+    uint8_t h3 =
+        HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_10) ? 1U : 0U;
+
+    uint8_t state = h1 | (h2 << 1) | (h3 << 2);
+
+    if (state != prev)
+    {
+        uartPrintf(_DEF_UART1,
+                   "H1/H2/H3=%u/%u/%u State=%u IRQ=%lu\r\n",
+                   h1, h2, h3, state,
+                   (unsigned long)hallGetIrqCount());
+
+        prev = state;
+    }
+
+    delay(5);
+}
+
+#endif
 
 #if 0  // Hall EXTI 소프트웨어 테스트
 
@@ -271,6 +366,31 @@ void apMain(void)
         (unsigned long)hallGetTransitionCount());
 
     delay(250);
+
+  }
+  #endif
+
+#if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (OPEN_LOOP_DIAG_ENABLE == 1U)
+  // Safe arming interlock: PWM MUST stay off until the user sends 'G'.
+  // Keep the 14 V motor supply disabled while flashing/inspecting wiring.
+  pwmDisableOutput();
+  uartPrintf(_DEF_UART1, "\r\nHALL-LOCKED TORQUE DIAG READY - PWM OFF.\r\n");
+  uartPrintf(_DEF_UART1, "Hall centre frozen, 10ms zero-current then +0.5A up to 200ms; stop at first edge.\r\n");
+  uartPrintf(_DEF_UART1, "Apply verified current-limited VBUS, then send capital G once.\r\n");
+  uartPrintf(_DEF_UART1, "Reset MCU to repeat. Never increase supply/current to force motion.\r\n");
+  while (1)
+  {
+    if (uartAvailable(_DEF_UART1) > 0U)
+    {
+      uint8_t ch = uartRead(_DEF_UART1);
+      if (ch == 'G')
+      {
+        uartPrintf(_DEF_UART1, "HALL-LOCKED TORQUE DIAG ARM REQUEST RECEIVED\r\n");
+        break;
+      }
+    }
+    delay(10);
+
   }
 #endif
 
@@ -343,7 +463,16 @@ void apMain(void)
   if (motorGetState() == MOTOR_STATE_OPEN_LOOP)
   {
     open_loop_start = millis();
-    pwmEnableOutput();
+    if ((pwmIsBreakFault() == false) &&
+        ((TIM1->SR & TIM_SR_BIF) == 0U) &&
+        ((TIM1->BDTR & TIM_BDTR_MOE) == 0U))
+    {
+      pwmEnableOutput();
+    }
+    else
+    {
+      motorSetFault(MOTOR_FAULT_BKIN);
+    }
   }
 
 #endif
@@ -1568,10 +1697,36 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
 
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP
 
+#if OPEN_LOOP_DIAG_ENABLE == 1U
+  // ISR has already disabled MOE on completion/trip.
+  if (open_loop_stopped == false &&
+      (motorOpenLoopDiagIsDone() ||
+       motorGetState() == MOTOR_STATE_FAULT ||
+       (now - open_loop_start) > (OPEN_LOOP_DIAG_TOTAL_MS + 200U)))
+  {
+    if (!motorOpenLoopDiagIsDone() &&
+        motorGetState() == MOTOR_STATE_OPEN_LOOP)
+    {
+      motorSetFault(MOTOR_FAULT_DIAG_TIMEOUT);
+    }
+    // Stop peripherals before UART reporting; preserve a latched fault.
+    if (motorGetState() == MOTOR_STATE_OPEN_LOOP)
+      motorStop();
+    else
+    {
+      pwmDisableOutput();
+      adcInjectedStop();
+      pwmStop();
+    }
+    apPrintOpenLoopDiagnosis();
+    open_loop_stopped = true;
+  }
+#else
+
+
     if ((open_loop_stopped == false) &&
         (motorGetState() == MOTOR_STATE_OPEN_LOOP) &&
-        ((now - open_loop_start) >=
-         open_loop_test_time_ms))
+        ((now - open_loop_start) >= open_loop_test_time_ms))
     {
       motorStop();
       open_loop_stopped = true;
@@ -1580,7 +1735,7 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
     {
       open_loop_stopped = true;
     }
-
+#endif
 #endif
 
 
@@ -1923,6 +2078,7 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
 
         hall_theta_e_mrad = (int32_t)(hall_theta_e * 1000.0f);
         hall_error_e_mrad = (int32_t)(hall_error_e * 1000.0f);
+
 
         uartPrintf(
             _DEF_UART1,
