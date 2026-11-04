@@ -18,6 +18,7 @@
 
 
 
+
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP && OPEN_LOOP_DIAG_ENABLE == 1U
 
 typedef struct
@@ -54,17 +55,27 @@ typedef struct
   uint32_t edge_overflow;
   uint32_t raw_edge_total;
   uint32_t cached_edge_total;
+  uint32_t confirmed_edges;
+  uint32_t fixed_confirmed_edges;
+  uint32_t sweep_confirmed_edges;
   uint32_t raw_edges_before_drive;
   uint32_t cached_edges_before_drive;
   uint8_t start_hall;
   uint8_t stopped_on_hall_edge;
+  uint8_t stopped_on_wrong_direction; // an adjacent Hall edge against commanded sweep
+  int8_t command_direction;          // +1 / -1 applied to signed Iq and field sweep
+  uint8_t fixed_only;                // 1: test fixed current vector only; 0: fixed + sweep        // +1: increasing electrical angle, -1: decreasing
   uint32_t stop_sample;
-  float theta_fixed;
+  float theta_fixed;                // virtual Park angle at t=0, from initial Hall sector
+  float angle_swept_e;              // signed unwrapped electrical displacement (rad)
   uint32_t irq_at_start;
   uint32_t irq_at_end;
   uint32_t transition_at_start;
   uint32_t transition_at_end;
   float peak_a, peak_b, peak_c;
+  float max_iq_tracking_error;      // A, after completing current ramp
+  uint32_t poor_iq_tracking_samples; // |iq ref - meas| > 0.2 A
+  uint32_t vq_limit_samples;         // |Vq| close to +/- 0.5 V limit
   float trip_a, trip_b, trip_c;
   uint32_t trip_sample;
   uint8_t completed;
@@ -77,8 +88,9 @@ typedef struct
 
 bool motorOpenLoopDiagIsDone(void);
 void motorOpenLoopDiagGet(motor_ol_diag_t *out);
+void motorOpenLoopDiagSetDirection(int8_t direction); // set before motorStart(); +1/-1
+void motorOpenLoopDiagSetFixedOnly(uint8_t fixed_only); // set before motorStart()
 #endif
-
 
 
 

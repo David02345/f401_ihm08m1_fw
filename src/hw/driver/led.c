@@ -17,7 +17,8 @@ typedef struct
 
 led_tbl_t led_tbl[LED_MAX_CH] =
     {
-        {GPIOA, GPIO_PIN_5, GPIO_PIN_SET, GPIO_PIN_SET},
+        {GPIOA, GPIO_PIN_5, GPIO_PIN_SET, GPIO_PIN_RESET},
+        //{GPIOA, GPIO_PIN_5, GPIO_PIN_SET, GPIO_PIN_SET},
     };
 
 bool ledInit(void)

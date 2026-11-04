@@ -56,7 +56,7 @@
   * @{
   */
 #define PWM_ARR                           2099
-#define PWM_DEADTIME                      80
+#define PWM_DEADTIME                      64 // 80
 #define PWM_ADC_BLANK_TICKS               150
 #define PWM_ADC_TRIG_PULSE                (PWM_ARR - PWM_ADC_BLANK_TICKS)
 #define PWM_ADC_INIT_PULSE                1049
@@ -91,10 +91,10 @@
 #define OUTPUT_VQ_REF_MAX                 0.5f
 #define OUTPUT_VQ_REF_MIN                 -0.5f
 */
-#define OUTPUT_VD_REF_MAX                 0.10f
-#define OUTPUT_VD_REF_MIN                -0.10f
-#define OUTPUT_VQ_REF_MAX                 0.35f
-#define OUTPUT_VQ_REF_MIN                -0.35f
+#define OUTPUT_VD_REF_MAX                 0.30f
+#define OUTPUT_VD_REF_MIN                -0.30f
+#define OUTPUT_VQ_REF_MAX                 0.5f
+#define OUTPUT_VQ_REF_MIN                -0.5f
 #define OUTPUT_ID_REF_MAX                 0.5f
 #define OUTPUT_ID_REF_MIN                -0.5f
 #define OUTPUT_IQ_REF_MAX                 1.0f
@@ -119,8 +119,8 @@
 /** @defgroup Motor Hardware Specifications
   * @{
   */
-#define GEAR_RATIO                        25
-#define GEAR_EFFICIENCY                   0.94
+#define GEAR_RATIO                        1
+#define GEAR_EFFICIENCY                   1.0f
 #define MOTOR_POLE_PAIRS                  4
 #define MOTOR_PHASE_R                     0.0784f     // Ohm
 #define MOTOR_LQ                          0.00020f    // H
@@ -163,27 +163,41 @@
 
 #define OPEN_LOOP_TEST_TIME_MS            8000U
 
-/** ISR-bounded Hall-locked torque STARTUP diagnostic (NO manual shaft motion).
- * Reuses the VERIFIED 20 kHz current PI controller with the initially measured
- * Hall sector-centre angle FROZEN until the first actual Hall GPIO/cache edge.
- * This is NOT a current PI tuning/step-response test: it measures first motion.
- * Software OC acts AFTER the ADC sample; keep independent PSU/BKIN protection.
+/** ISR-bounded ROTATING CURRENT VECTOR diagnostic (NO manual shaft motion).
+ * Reuses the proven 20 kHz current PI. After a 100 ms current ramp, advance
+ * a VIRTUAL Park angle at a slow electrical speed; do NOT replace it with
+ * Hall sector centres on edges. Hall is monitored independently as feedback.
+ * This is neither closed-loop FOC rotor angle control nor a speed controller.
+ * Software OC responds AFTER sampling; retain independent PSU/BKIN protection.
  */
 #define OPEN_LOOP_DIAG_ENABLE              1U
 #define OPEN_LOOP_DIAG_SETTLE_MS           10U   // neutral PWM before applying torque
-#define OPEN_LOOP_DIAG_DRIVE_MS            200U  // maximum torque-on time
-#define OPEN_LOOP_DIAG_IQ_REF_A            0.5f  // low-current recovery diagnostic
-#define OPEN_LOOP_DIAG_OC_LIMIT_A          0.8f  // measured per-phase software trip
-#define OPEN_LOOP_DIAG_LOG_DIVIDER         200U  // every 10 ms at 20 kHz
-#define OPEN_LOOP_DIAG_MAX_LOGS            24U
+#define OPEN_LOOP_DIAG_DRIVE_MS            1490U // 1500 ms total incl. settle; motor OFF in ISR
+#define OPEN_LOOP_DIAG_IQ_REF_A            0.4f  // retain tested 0.8A with 1.5A phase guard
+#define OPEN_LOOP_DIAG_OC_LIMIT_A          1.5f  // measured phase-current software trip (A)
+#define OPEN_LOOP_DIAG_RAMP_MS             100U  // current ramp after settle
+#define OPEN_LOOP_DIAG_RAMP_SAMPLES        ((OPEN_LOOP_DIAG_RAMP_MS * 1000U) / 50U)
+#define OPEN_LOOP_DIAG_LOG_DIVIDER         400U  // every 20 ms at 20 kHz
+#define OPEN_LOOP_DIAG_MAX_LOGS            90U  // up to 1500 ms at 20ms interval
+#define OPEN_LOOP_DIAG_FIXED_HOLD_MS       250U  // after 100ms Id ramp (S/R), hold alignment
+#define OPEN_LOOP_DIAG_ALIGN_ID_A          0.40f // S/R only, positive d-axis alignment current
+#define OPEN_LOOP_DIAG_DQ_BLEND_MS         150U  // smooth Id->Iq transition, S/R only
+#define OPEN_LOOP_DIAG_DQ_BLEND_SAMPLES    ((OPEN_LOOP_DIAG_DQ_BLEND_MS * 1000U) / 50U)
+#define OPEN_LOOP_DIAG_SWEEP_SPEED_E       1.5f // electrical rad/s; slow sweep after fixed hold
 #define OPEN_LOOP_DIAG_MAX_EDGES           24U
+#define OPEN_LOOP_DIAG_TARGET_EDGES        3U  // stop after 3 confirmed Hall transitions
 #define OPEN_LOOP_DIAG_SETTLE_SAMPLES      ((OPEN_LOOP_DIAG_SETTLE_MS * 1000U) / 50U)
 #define OPEN_LOOP_DIAG_TOTAL_SAMPLES       (((OPEN_LOOP_DIAG_SETTLE_MS + OPEN_LOOP_DIAG_DRIVE_MS) * 1000U) / 50U)
 #define OPEN_LOOP_DIAG_TOTAL_MS            (OPEN_LOOP_DIAG_SETTLE_MS + OPEN_LOOP_DIAG_DRIVE_MS)
+#define OPEN_LOOP_DIAG_FIXED_END_SAMPLES   (((OPEN_LOOP_DIAG_SETTLE_MS + OPEN_LOOP_DIAG_RAMP_MS + OPEN_LOOP_DIAG_FIXED_HOLD_MS) * 1000U) / 50U)
+#define OPEN_LOOP_DIAG_SWEEP_START_SAMPLES (OPEN_LOOP_DIAG_FIXED_END_SAMPLES + OPEN_LOOP_DIAG_DQ_BLEND_SAMPLES)
 
 #if OPEN_LOOP_DIAG_ENABLE
-#if OPEN_LOOP_DIAG_SETTLE_MS < 1U || OPEN_LOOP_DIAG_DRIVE_MS > 1000U
-#error "Check Hall-locked startup diagnostic timing"
+#if OPEN_LOOP_DIAG_SETTLE_MS < 1U || OPEN_LOOP_DIAG_DRIVE_MS > 1500U || \
+    OPEN_LOOP_DIAG_RAMP_MS < 1U || \
+    (OPEN_LOOP_DIAG_RAMP_MS + OPEN_LOOP_DIAG_FIXED_HOLD_MS + OPEN_LOOP_DIAG_DQ_BLEND_MS) >= OPEN_LOOP_DIAG_DRIVE_MS || \
+    OPEN_LOOP_DIAG_LOG_DIVIDER == 0U
+#error "Check rotating-vector diagnostic timing"
 #endif
 #endif
 

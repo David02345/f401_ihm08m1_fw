@@ -207,9 +207,14 @@ void pwmStart(void)
   __HAL_TIM_CLEAR_FLAG(&htim1, TIM_FLAG_BREAK);
   __HAL_TIM_ENABLE_IT(&htim1, TIM_IT_BREAK);
 
-  htim1.Instance->CCER |= (TIM_CCER_CC1E  | TIM_CCER_CC2E  | TIM_CCER_CC3E | TIM_CCER_CC4E |
-                           TIM_CCER_CC1NE | TIM_CCER_CC2NE | TIM_CCER_CC3NE);
+  // htim1.Instance->CCER |= (TIM_CCER_CC1E  | TIM_CCER_CC2E  | TIM_CCER_CC3E | TIM_CCER_CC4E |
+  //                          TIM_CCER_CC1NE | TIM_CCER_CC2NE | TIM_CCER_CC3NE);
 
+  // CH4 still generates internal OC4REF -> TRGO for ADC, but PA11 CH4 must
+  // not be driven: on X-NUCLEO-IHM08M1 R73/R78 tie PA11 to PA6/BKIN.
+  htim1.Instance->CCER &= ~TIM_CCER_CC4E;
+  htim1.Instance->CCER |= (TIM_CCER_CC1E  | TIM_CCER_CC2E  | TIM_CCER_CC3E |
+                           TIM_CCER_CC1NE | TIM_CCER_CC2NE | TIM_CCER_CC3NE);
   __HAL_TIM_ENABLE(&htim1);
 }
 
@@ -342,14 +347,22 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef* timHandle)
     PA8     ------> TIM1_CH1
     PA9     ------> TIM1_CH2
     PA10     ------> TIM1_CH3
-    PA11     ------> TIM1_CH4
+    PA11     ------> not driven (shared with PA6/BKIN via R73/R78)
+    (원래 PA11)------> TIM1_CH4
+
     */
-    GPIO_InitStruct.Pin = GPIO_PIN_7|GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10
-                          |GPIO_PIN_11;
+    GPIO_InitStruct.Pin = GPIO_PIN_7|GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10;
+                          //|GPIO_PIN_11;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     GPIO_InitStruct.Alternate = GPIO_AF1_TIM1;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    // Explicitly leave PA11 high-impedance; CH4 remains an INTERNAL timer event.
+    GPIO_InitStruct.Pin = GPIO_PIN_11;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
     GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1;
