@@ -64,7 +64,8 @@ typedef struct
   uint8_t stopped_on_hall_edge;
   uint8_t stopped_on_wrong_direction; // an adjacent Hall edge against commanded sweep
   int8_t command_direction;          // +1 / -1 applied to signed Iq and field sweep
-  uint8_t fixed_only;                // 1: test fixed current vector only; 0: fixed + sweep        // +1: increasing electrical angle, -1: decreasing
+  uint8_t fixed_only;                // 1: fixed current, 0: fixed alignment + sweep
+  uint8_t absolute_start;            // T: virtual theta starts at 0 rad; NO Hall angle for Park
   uint32_t stop_sample;
   float theta_fixed;                // virtual Park angle at t=0, from initial Hall sector
   float angle_swept_e;              // signed unwrapped electrical displacement (rad)
@@ -90,6 +91,7 @@ bool motorOpenLoopDiagIsDone(void);
 void motorOpenLoopDiagGet(motor_ol_diag_t *out);
 void motorOpenLoopDiagSetDirection(int8_t direction); // set before motorStart(); +1/-1
 void motorOpenLoopDiagSetFixedOnly(uint8_t fixed_only); // set before motorStart()
+void motorOpenLoopDiagSetAbsoluteStart(uint8_t enabled); // T only: absolute 0-rad virtual field
 #endif
 
 

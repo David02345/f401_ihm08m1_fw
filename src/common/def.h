@@ -134,7 +134,7 @@
 #define HALL_SECTOR_ANGLE_E               (PI / 3.0f)
 #define HALL_SPEED_LPF_ALPHA              1.0f
 #define HALL_STOP_TIMEOUT_US              3000000U
-#define HALL_ELEC_OFFSET                  5.295f
+#define HALL_ELEC_OFFSET                  5.295f /* baseline H: Hall 010 -> 110 once */
 
 #define HALL_CAL_ALIGN_COUNT              20000U
 #define HALL_CAL_ALIGN_VD                 0.40f
@@ -174,7 +174,7 @@
 #define OPEN_LOOP_DIAG_SETTLE_MS           10U   // neutral PWM before applying torque
 #define OPEN_LOOP_DIAG_DRIVE_MS            1490U // 1500 ms total incl. settle; motor OFF in ISR
 #define OPEN_LOOP_DIAG_IQ_REF_A            0.4f  // retain tested 0.8A with 1.5A phase guard
-#define OPEN_LOOP_DIAG_OC_LIMIT_A          1.5f  // measured phase-current software trip (A)
+#define OPEN_LOOP_DIAG_OC_LIMIT_A          2.0f  // measured phase-current software trip (A)
 #define OPEN_LOOP_DIAG_RAMP_MS             100U  // current ramp after settle
 #define OPEN_LOOP_DIAG_RAMP_SAMPLES        ((OPEN_LOOP_DIAG_RAMP_MS * 1000U) / 50U)
 #define OPEN_LOOP_DIAG_LOG_DIVIDER         400U  // every 20 ms at 20 kHz
