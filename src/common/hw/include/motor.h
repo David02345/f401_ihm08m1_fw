@@ -87,6 +87,12 @@ typedef struct
   motor_ol_diag_edge_t edges[OPEN_LOOP_DIAG_MAX_EDGES];
 } motor_ol_diag_t;
 
+/* D: Hall-independent fixed-Id vector stepping (0..180 deg electrical). */
+void motorIdStepSelect(void);
+bool motorIdStepIsSelected(void);
+bool motorIdStepIsDone(void);
+void motorIdStepPrint(void);
+
 bool motorOpenLoopDiagIsDone(void);
 void motorOpenLoopDiagGet(motor_ol_diag_t *out);
 void motorOpenLoopDiagSetDirection(int8_t direction); // set before motorStart(); +1/-1

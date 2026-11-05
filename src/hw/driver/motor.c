@@ -188,13 +188,6 @@ static int8_t open_loop_diag_last_confirmed_sector;
 static int8_t open_loop_diag_confirmed_direction;
 static volatile int8_t open_loop_diag_requested_direction = 1;
 static volatile uint8_t open_loop_diag_requested_fixed_only = 1U;
-static volatile uint8_t open_loop_diag_requested_absolute_start = 0U;
-
-/* T test only: low-current, absolute stator field, independent of Hall angle.
- * Software protection is the existing OPEN_LOOP_DIAG_OC_LIMIT_A (1.5 A).
- * Do not change the H/J current limits or Hall calibration constants. */
-#define ABS_SWEEP_I_A                    1.70f
-#define ABS_SWEEP_ALIGN_I_A              1.70f
 
 static uint8_t motorOpenLoopDiagReadPins(void);
 
@@ -500,34 +493,268 @@ void motorSixStepPrint(void)
 }
 /* ---------- End isolated six-step diagnostic ---------- */
 
+/* ---------- UART 'D': Hall-independent ID-axis vector stepping ----------
+ * DO NOT use hallGetElectricalAngle() to control this test.
+ * Existing A/B current (0.40A) and OC guard (0.80A) are retained.
+ * 0..180 electrical degrees in six 30-degree increments.
+ * 100 ms angle slew then 250 ms hold, for each increment.
+ * Automatically disables MOE inside ADC ISR, including all faults.
+ */
+#define IDSTEP_ID_A                  0.40f
+#define IDSTEP_OC_A                  0.80f
+#define IDSTEP_SETTLE_N             200U    /* 10 ms */
+#define IDSTEP_RAMP_N               2000U   /* 100 ms */
+#define IDSTEP_ALIGN_HOLD_N         5000U   /* 250 ms */
+#define IDSTEP_SLEW_N               2000U   /* 100 ms */
+#define IDSTEP_HOLD_N               5000U   /* 250 ms */
+#define IDSTEP_STEP_N               (IDSTEP_SLEW_N + IDSTEP_HOLD_N)
+#define IDSTEP_NUM_MOVES            6U
+#define IDSTEP_START_MOVES_N        (IDSTEP_SETTLE_N + IDSTEP_RAMP_N + IDSTEP_ALIGN_HOLD_N)
+#define IDSTEP_TOTAL_N              (IDSTEP_START_MOVES_N + IDSTEP_NUM_MOVES * IDSTEP_STEP_N)
+#define IDSTEP_TOTAL_MS             (IDSTEP_TOTAL_N / 20U)
+#define IDSTEP_DEBOUNCE_N           5U
+
+typedef struct
+{
+  uint8_t hall_gpio, hall_cached;
+  uint32_t hall_irqs, hall_transitions;
+  float theta, id_meas, iq_meas, vd, vq;
+} idstep_snapshot_t;
+
+typedef struct
+{
+  volatile uint8_t selected, done, seen_moe;
+  volatile uint8_t overcurrent, bkin, moe_lost;
+  volatile uint8_t initial_hall, final_hall, candidate_hall, candidate_count;
+  volatile uint8_t recorded;
+  volatile uint32_t samples, hall_edges, bad_hall_samples;
+  volatile float peak_a, peak_b, peak_c, peak_id_error;
+  volatile uint32_t vd_limit_samples;
+  idstep_snapshot_t steps[7]; /* 0,30,...,180 electrical degrees */
+} idstep_diag_t;
+static volatile idstep_diag_t idstep;
+
+static void idStepStop(motor_fault_t reason)
+{
+  pwmDisableOutput();
+  idstep.done = 1U;
+  if (reason != MOTOR_FAULT_NONE)
+  {
+    motor_fault = reason;
+    motor_state = MOTOR_STATE_FAULT;
+  }
+}
+
+static void motorIdStepUpdate(void)
+{
+  if (motor_state != MOTOR_STATE_OPEN_LOOP || idstep.done) return;
+
+  /* motorStart() precedes pwmEnableOutput() in ap.c; only begin counting
+   * once the first MOE has actually been seen.  Later MOE loss is a fault. */
+  if (!idstep.seen_moe && ((TIM1->BDTR & TIM_BDTR_MOE) == 0U))
+  {
+    if (pwmIsBreakFault() || ((TIM1->SR & TIM_SR_BIF) != 0U))
+    {
+      idstep.bkin = 1U;
+      idStepStop(MOTOR_FAULT_BKIN);
+    }
+    return;
+  }
+
+  motor_abc_f_t curr;
+  adcGetPhaseCurrent(&curr);
+  const float ia = fabsf(curr.a);
+  const float ib = fabsf(curr.b);
+  const float ic = fabsf(curr.c);
+  if (ia > idstep.peak_a) idstep.peak_a = ia;
+  if (ib > idstep.peak_b) idstep.peak_b = ib;
+  if (ic > idstep.peak_c) idstep.peak_c = ic;
+
+  if (pwmIsBreakFault() || ((TIM1->SR & TIM_SR_BIF) != 0U))
+  {
+    idstep.bkin = 1U;
+    idStepStop(MOTOR_FAULT_BKIN);
+    return;
+  }
+  if ((TIM1->BDTR & TIM_BDTR_MOE) == 0U)
+  {
+    idstep.moe_lost = 1U;
+    idStepStop(MOTOR_FAULT_INIT_FAIL);
+    return;
+  }
+  idstep.seen_moe = 1U;
+  if (ia >= IDSTEP_OC_A || ib >= IDSTEP_OC_A || ic >= IDSTEP_OC_A)
+  {
+    idstep.overcurrent = 1U;
+    idStepStop(MOTOR_FAULT_SW_OVERCURRENT);
+    return;
+  }
+
+  const uint32_t n = idstep.samples;
+  const uint8_t hall = motorOpenLoopDiagReadPins();
+  if (n == 0U)
+  {
+    idstep.initial_hall = hall;
+    idstep.final_hall = hall;
+    idstep.candidate_hall = hall;
+    idstep.candidate_count = 0U;
+  }
+  else if (hall == idstep.final_hall)
+  {
+    idstep.candidate_count = 0U;
+    idstep.candidate_hall = hall;
+  }
+  else
+  {
+    if (hall != idstep.candidate_hall)
+    {
+      idstep.candidate_hall = hall;
+      idstep.candidate_count = 1U;
+    }
+    else if (idstep.candidate_count < IDSTEP_DEBOUNCE_N)
+      idstep.candidate_count++;
+
+    if (idstep.candidate_count >= IDSTEP_DEBOUNCE_N)
+    {
+      idstep.final_hall = hall;
+      idstep.hall_edges++;
+      idstep.candidate_count = 0U;
+    }
+  }
+  /* Hall is OBSERVATION ONLY. Invalid states cannot change Park theta. */
+  if (hall == 0U || hall == 7U) idstep.bad_hall_samples++;
+
+  float id_ref = 0.0f;
+  float theta = 0.0f;
+  if (n >= IDSTEP_SETTLE_N)
+  {
+    const uint32_t ramp_n = n - IDSTEP_SETTLE_N;
+    id_ref = (ramp_n >= IDSTEP_RAMP_N) ? IDSTEP_ID_A :
+             IDSTEP_ID_A * ((float)ramp_n / (float)IDSTEP_RAMP_N);
+  }
+  if (n >= IDSTEP_START_MOVES_N)
+  {
+    const uint32_t move_n = n - IDSTEP_START_MOVES_N;
+    const uint32_t move_idx = move_n / IDSTEP_STEP_N; /* 0..5 */
+    const uint32_t within = move_n % IDSTEP_STEP_N;
+    float fraction = (float)within / (float)IDSTEP_SLEW_N;
+    if (fraction > 1.0f) fraction = 1.0f;
+    theta = ((float)move_idx + fraction) * (PI / 6.0f);
+  }
+  /* NO Hall correction. No Q-axis torque command. */
+  motorCurrentLoop(id_ref, 0.0f, theta);
+  if (motor_fault != MOTOR_FAULT_NONE || motor_state == MOTOR_STATE_FAULT)
+  {
+    if (motor_fault == MOTOR_FAULT_SW_OVERCURRENT) idstep.overcurrent = 1U;
+    idStepStop(motor_fault);
+    return;
+  }
+
+  if (n >= IDSTEP_SETTLE_N + IDSTEP_RAMP_N)
+  {
+    const float id_error = fabsf(id_ref - motor_monitor.id_meas);
+    if (id_error > idstep.peak_id_error) idstep.peak_id_error = id_error;
+    if (fabsf(motor_monitor.vd_cmd) >= (OUTPUT_VD_REF_MAX - 0.005f))
+      idstep.vd_limit_samples++;
+  }
+
+  /* Snapshot after the 0-degree hold and after each 30-degree hold. */
+  uint8_t pos = 255U;
+  if (n == IDSTEP_START_MOVES_N - 1U)
+    pos = 0U;
+  else if (n >= IDSTEP_START_MOVES_N)
+  {
+    const uint32_t move_n = n - IDSTEP_START_MOVES_N;
+    if ((move_n % IDSTEP_STEP_N) == (IDSTEP_STEP_N - 1U))
+      pos = (uint8_t)(1U + move_n / IDSTEP_STEP_N);
+  }
+  if (pos <= IDSTEP_NUM_MOVES)
+  {
+    volatile idstep_snapshot_t *p = &idstep.steps[pos];
+    p->hall_gpio = hall;
+    p->hall_cached = hallGetState();
+    p->hall_irqs = hallGetIrqCount();
+    p->hall_transitions = hallGetTransitionCount();
+    p->theta = theta;
+    p->id_meas = motor_monitor.id_meas;
+    p->iq_meas = motor_monitor.iq_meas;
+    p->vd = motor_monitor.vd_cmd;
+    p->vq = motor_monitor.vq_cmd;
+    idstep.recorded = pos + 1U;
+  }
+
+  idstep.samples = n + 1U;
+  if (idstep.samples >= IDSTEP_TOTAL_N)
+    idStepStop(MOTOR_FAULT_NONE);
+}
+
+void motorIdStepSelect(void)
+{
+  if (motor_state == MOTOR_STATE_IDLE &&
+      ((TIM1->BDTR & TIM_BDTR_MOE) == 0U))
+  {
+    idstep = (idstep_diag_t){0};
+    idstep.selected = 1U;
+  }
+}
+bool motorIdStepIsSelected(void) { return idstep.selected != 0U; }
+bool motorIdStepIsDone(void) { return idstep.done != 0U; }
+
+void motorIdStepPrint(void)
+{
+  uartPrintf(_DEF_UART1, "\r\n===== D: ID VECTOR STEP TEST =====\r\n");
+  uartPrintf(_DEF_UART1,
+      "Id=%ldmA, Iq=0, theta 0..180deg e / 30deg steps; slew 100ms, hold 250ms; max %lums\r\n",
+      (long)(IDSTEP_ID_A * 1000.0f), (unsigned long)IDSTEP_TOTAL_MS);
+  uartPrintf(_DEF_UART1, "samples=%lu/%lu, done=%u, fault=%d, Hall %u -> %u, stable_edges=%lu, invalid_samples=%lu\r\n",
+      (unsigned long)idstep.samples, (unsigned long)IDSTEP_TOTAL_N,
+      (unsigned int)idstep.done, (int)motor_fault,
+      (unsigned int)idstep.initial_hall, (unsigned int)idstep.final_hall,
+      (unsigned long)idstep.hall_edges,
+      (unsigned long)idstep.bad_hall_samples);
+  uartPrintf(_DEF_UART1, "Peak |Ia/Ib/Ic|=%ld/%ld/%ldmA; OC/BKIN/MOE=%u/%u/%u; max Id error=%ldmA, Vd-limit samples=%lu\r\n",
+      (long)(idstep.peak_a * 1000.0f),
+      (long)(idstep.peak_b * 1000.0f),
+      (long)(idstep.peak_c * 1000.0f),
+      (unsigned int)idstep.overcurrent, (unsigned int)idstep.bkin,
+      (unsigned int)idstep.moe_lost,
+      (long)(idstep.peak_id_error * 1000.0f),
+      (unsigned long)idstep.vd_limit_samples);
+  uartPrintf(_DEF_UART1, "angle_deg,HallGPIO,HallCache,HallIRQ,HallTransition,Id_mA,Iq_mA,Vd_mV,Vq_mV\r\n");
+  for (uint32_t i=0U; i<(uint32_t)idstep.recorded; i++)
+  {
+    const volatile idstep_snapshot_t *p = &idstep.steps[i];
+    uartPrintf(_DEF_UART1, "%lu,%u,%u,%lu,%lu,%ld,%ld,%ld,%ld\r\n",
+        (unsigned long)(i * 30U),
+        (unsigned int)p->hall_gpio, (unsigned int)p->hall_cached,
+        (unsigned long)p->hall_irqs, (unsigned long)p->hall_transitions,
+        (long)(p->id_meas * 1000.0f),
+        (long)(p->iq_meas * 1000.0f),
+        (long)(p->vd * 1000.0f),
+        (long)(p->vq * 1000.0f));
+  }
+  uartPrintf(_DEF_UART1, "All angles are COMMAND angles, not measured rotor angles.\r\n");
+  uartPrintf(_DEF_UART1, "===== END D ID VECTOR STEP TEST =====\r\n");
+}
+/* ---------- End UART D test ---------- */
+
 /* -------- UART 'H': genuine Hall-angle current FOC, NOT a virtual sweep. ------
  * Does not change any C/S/P/A/B path. Must be armed before motorStart().
  * Require hardware BKIN, current-limited PSU and motor fixed securely.
- * Drive 650 ms max; stop after three stable Hall transitions. */
-/* H: proven 2->6 baseline with staged current boost */
-#define HFOC_IQ_TARGET_A         1.70f
-#define HFOC_BOOST_IQ_A          2.00f
-#define HFOC_BOOST_START_SAMPLES 5000U  /* 250 ms */
-#define HFOC_BOOST_RAMP_SAMPLES  1000U  /* 50 ms: 1.7 -> 2.0 A */
-#define HFOC_OC_LIMIT_A          2.30f  /* H ONLY; software phase-current limit */
-#define JFOC_OC_LIMIT_A          1.90f  /* J stays unchanged */
-#define HFOC_RAMP_SAMPLES        3000U  /* 150 ms at 20 kHz */
-#define HFOC_TOTAL_SAMPLES       13000U /* 650 ms */
-#define HFOC_TARGET_EDGES        3U
+ * Drive 450 ms max; stop after two stable Hall transitions. */
+#define HFOC_IQ_TARGET_A       1.70f
+#define HFOC_OC_LIMIT_A        1.90f
+#define HFOC_RAMP_SAMPLES      3000U  /* 150 ms at 20 kHz */
+#define HFOC_TOTAL_SAMPLES     9000U  /* 450 ms */
+#define HFOC_TARGET_EDGES      2U
 #define HFOC_HALL_STABLE_N     5U     /* 250 us confirmed Hall input */
 
 /* J: FOC current-loop forced-angle spin-up, then guarded Hall handoff.
  * H remains unchanged.  Do NOT increase the 1.9 A protection threshold. */
 #define JFOC_TOTAL_SAMPLES       14000U  /* 700 ms at 20 kHz */
-#define JFOC_ALIGN_SAMPLES        3000U  /* 150 ms fixed-angle d-axis alignment */
-#define JFOC_ALIGN_RAMP_SAMPLES    600U  /* 30 ms gradual Id rise */
-#define JFOC_ALIGN_ID_A          0.50f  /* alignment is not a 1.7A torque pulse */
-#define JFOC_IQ_TARGET_A         1.50f  /* lower than prior 1.7A J test */
-#define JFOC_IQ_RAMP_SAMPLES     3000U  /* 150 ms from alignment end */
-#define JFOC_D_TO_Q_SAMPLES      2000U  /* 100ms smooth Id release */
-#define JFOC_SWEEP_START_SAMPLE  (JFOC_ALIGN_SAMPLES + JFOC_IQ_RAMP_SAMPLES)
-#define JFOC_SPEED_RAMP_SAMPLES   2000U  /* 100 ms acceleration */
-#define JFOC_SPEED_MAX_E          8.0f  /* electrical rad/s */
+#define JFOC_SWEEP_START_SAMPLE    3200U  /* 160 ms, after Iq ramp */
+#define JFOC_SPEED_RAMP_SAMPLES    3000U  /* 150 ms acceleration */
+#define JFOC_SPEED_MAX_E          10.0f   /* electrical rad/s */
 #define JFOC_BLEND_SAMPLES        1200U   /* 60 ms angle blend */
 #define JFOC_HANDOFF_MAX_DIFF     1.0472f /* max 60 degrees */
 #define JFOC_SUCCESS_EDGES        4U
@@ -545,9 +772,6 @@ typedef struct
   uint8_t candidate_hall, candidate_count;
   volatile uint8_t forced_selected, startup_stage, phase_mismatch, reverse_edge;
   volatile uint32_t forward_edges, handoff_sample;
-  volatile uint32_t h_edges_before_boost, h_edges_after_boost;
-  volatile uint32_t alignment_edges;
-  volatile uint8_t alignment_hall;
   volatile float commanded_theta, handoff_error;
 } hall_foc_diag_t;
 static hall_foc_diag_t hall_foc;
@@ -595,10 +819,8 @@ static void motorHallFocUpdate(void)
     hallFocFinish(MOTOR_FAULT_INIT_FAIL);
     return;
   }
-  const float hall_oc_limit = hall_foc.forced_selected ?
-      JFOC_OC_LIMIT_A : HFOC_OC_LIMIT_A;
-  if (a >= hall_oc_limit || b >= hall_oc_limit ||
-      c >= hall_oc_limit)
+  if (a >= HFOC_OC_LIMIT_A || b >= HFOC_OC_LIMIT_A ||
+      c >= HFOC_OC_LIMIT_A)
   {
     hall_foc.oc = 1U;
     hallFocFinish(MOTOR_FAULT_SW_OVERCURRENT);
@@ -621,7 +843,6 @@ static void motorHallFocUpdate(void)
     hall_foc.candidate_hall = raw;
     hall_foc.candidate_count = 0U;
     hall_foc.commanded_theta = hallGetElectricalAngle();
-    hall_foc.alignment_hall = raw;
   }
   else if (raw == hall_foc.last_hall)
   {
@@ -650,37 +871,22 @@ static void motorHallFocUpdate(void)
       }
       if (hall_foc.forced_selected)
       {
-        if (hall_foc.startup_stage == 0U)
+        /* Observed physical +Iq direction: 010 -> 110.  In the C
+         * six-step order, that is a -1 neighbor change (modulo 6). */
+        const int8_t prev_ord = sixStepHallOrder(hall_foc.last_hall);
+        const int8_t next_ord = sixStepHallOrder(raw);
+        const int8_t dir = (int8_t)((next_ord - prev_ord + 6) % 6);
+        if (dir != 5)
         {
-          /* Alignment can move either way. Never miscount as startup. */
-          hall_foc.alignment_edges++;
-          hall_foc.alignment_hall = raw;
+          hall_foc.reverse_edge = 1U;
+          hallFocFinish(MOTOR_FAULT_HALL_INVALID);
+          return;
         }
-        else
-        {
-          /* Confirmed +Iq direction in the prior C/H tests: 010 -> 110. */
-          const int8_t prev_ord = sixStepHallOrder(hall_foc.last_hall);
-          const int8_t next_ord = sixStepHallOrder(raw);
-          const int8_t dir = (int8_t)((next_ord - prev_ord + 6) % 6);
-          if (dir != 5)
-          {
-            hall_foc.reverse_edge = 1U;
-            hallFocFinish(MOTOR_FAULT_HALL_INVALID);
-            return;
-          }
-          hall_foc.forward_edges++;
-          if (hall_foc.forward_edges >= 2U && hall_foc.startup_stage == 1U)
-            hall_foc.startup_stage = 2U; /* start guarded Hall handoff */
-        }
+        hall_foc.forward_edges++;
+        if (hall_foc.forward_edges >= 2U && hall_foc.startup_stage == 0U)
+          hall_foc.startup_stage = 1U; /* begin guarded Hall handoff */
       }
       hall_foc.edges++;
-      if (!hall_foc.forced_selected)
-      {
-        if (hall_foc.samples < HFOC_BOOST_START_SAMPLES)
-          hall_foc.h_edges_before_boost++;
-        else
-          hall_foc.h_edges_after_boost++;
-      }
       hall_foc.last_hall = raw;
       hall_foc.candidate_count = 0U;
       if (!hall_foc.forced_selected && hall_foc.edges >= HFOC_TARGET_EDGES)
@@ -700,118 +906,74 @@ static void motorHallFocUpdate(void)
   }
 
   const uint32_t n = hall_foc.samples;
-  float id_ref = 0.0f;
   float iq_ref = 0.0f;
-  float theta_e;
-
-  if (!hall_foc.forced_selected)
+  if (n >= 200U)  /* initial 10 ms neutral settling */
   {
-    /* Restore the Hall angle interpolation from the H run which
-     * actually recorded 010 -> 110. Do not alter J startup. */
-    theta_e = hallGetElectricalAngle();
-
-    /* H current command and ramp unchanged. */
-    if (n >= 200U)
-    {
-      float fraction = (float)(n - 200U) / (float)HFOC_RAMP_SAMPLES;
-      if (fraction > 1.0f) fraction = 1.0f;
-      iq_ref = HFOC_IQ_TARGET_A * fraction;
-      if (n >= HFOC_BOOST_START_SAMPLES)
-      {
-        float boost_frac = (float)(n - HFOC_BOOST_START_SAMPLES) /
-                           (float)HFOC_BOOST_RAMP_SAMPLES;
-        if (boost_frac > 1.0f) boost_frac = 1.0f;
-        iq_ref += (HFOC_BOOST_IQ_A - HFOC_IQ_TARGET_A) * boost_frac;
-      }
-    }
+    float fraction = (float)(n - 200U) / (float)HFOC_RAMP_SAMPLES;
+    if (fraction > 1.0f) fraction = 1.0f;
+    iq_ref = HFOC_IQ_TARGET_A * fraction;
   }
-  else
+
+  /* This is the critical difference from S: actual Hall electrical angle
+   * on EVERY current-control ISR, not an integrated virtual test angle. */
+  float theta_e = hallGetElectricalAngle();
+  if (hall_foc.forced_selected)
   {
-    theta_e = hallGetElectricalAngle();
-    /* J stage 0: fixed stator-axis alignment. Do not rotate theta.
-     * Id rises to only 0.5A; both direction and Hall edges are logged,
-     * but alignment edges never qualify for the handoff. */
-    if (n < JFOC_ALIGN_SAMPLES)
+    /* Stage 0: closed-loop Id/Iq but OPEN-LOOP electrical position.
+     * Advance only after Iq reaches its previous tested 1.7 A value. */
+    if (hall_foc.startup_stage == 0U)
     {
-      float fraction = (float)n / (float)JFOC_ALIGN_RAMP_SAMPLES;
-      if (fraction > 1.0f) fraction = 1.0f;
-      id_ref = JFOC_ALIGN_ID_A * fraction;
+      if (n >= JFOC_SWEEP_START_SAMPLE)
+      {
+        float progress = (float)(n - JFOC_SWEEP_START_SAMPLE) /
+                         (float)JFOC_SPEED_RAMP_SAMPLES;
+        if (progress > 1.0f) progress = 1.0f;
+        const float omega = JFOC_SPEED_MAX_E * progress;
+        hall_foc.commanded_theta = wrapFloat(
+            hall_foc.commanded_theta + omega * CUR_DT, 0.0f, 2.0f * PI);
+      }
       theta_e = hall_foc.commanded_theta;
     }
     else
     {
-      if (hall_foc.startup_stage == 0U)
-      {
-        hall_foc.startup_stage = 1U;
-        hall_foc.forward_edges = 0U;
-        /* Alignment field position is deliberately retained: don't
-         * suddenly jump to a different Hall-sector center here. */
-      }
-      /* Stage 1: release Id as Iq ramps, then sweep the virtual angle.
-       * Current PI stays closed-loop in every stage. */
+      const float hall_theta = hallGetElectricalAngle();
       if (hall_foc.startup_stage == 1U)
       {
-        float release = (float)(n - JFOC_ALIGN_SAMPLES) /
-                        (float)JFOC_D_TO_Q_SAMPLES;
-        if (release > 1.0f) release = 1.0f;
-        id_ref = JFOC_ALIGN_ID_A * (1.0f - release);
-
-        float rise = (float)(n - JFOC_ALIGN_SAMPLES) /
-                     (float)JFOC_IQ_RAMP_SAMPLES;
-        if (rise > 1.0f) rise = 1.0f;
-        iq_ref = JFOC_IQ_TARGET_A * rise;
-
-        if (n >= JFOC_SWEEP_START_SAMPLE)
+        /* Error from the Hall estimate to the virtual field direction.
+         * Handoff is refused rather than risking a large torque jump. */
+        const float delta = wrapFloat(
+            hall_foc.commanded_theta - hall_theta + PI, 0.0f, 2.0f * PI) - PI;
+        if (fabsf(delta) > JFOC_HANDOFF_MAX_DIFF)
         {
-          float progress = (float)(n - JFOC_SWEEP_START_SAMPLE) /
-                           (float)JFOC_SPEED_RAMP_SAMPLES;
-          if (progress > 1.0f) progress = 1.0f;
-          const float omega = JFOC_SPEED_MAX_E * progress;
-          hall_foc.commanded_theta = wrapFloat(
-              hall_foc.commanded_theta + omega * CUR_DT, 0.0f, 2.0f * PI);
+          hall_foc.phase_mismatch = 1U;
+          hallFocFinish(MOTOR_FAULT_INIT_FAIL);
+          return;
         }
-        theta_e = hall_foc.commanded_theta;
+        hall_foc.handoff_error = delta;
+        hall_foc.handoff_sample = n;
+        hall_foc.startup_stage = 2U;
       }
-      else
+      if (hall_foc.startup_stage == 2U)
       {
-        /* Stage 2/3: Hall handoff using the existing guarded blend. */
-        iq_ref = JFOC_IQ_TARGET_A;
-        const float hall_theta = hallGetElectricalAngle();
-        if (hall_foc.startup_stage == 2U && hall_foc.handoff_sample == 0U)
+        const uint32_t elapsed = n - hall_foc.handoff_sample;
+        if (elapsed >= JFOC_BLEND_SAMPLES)
         {
-          const float delta = wrapFloat(
-              hall_foc.commanded_theta - hall_theta + PI, 0.0f, 2.0f * PI) - PI;
-          if (fabsf(delta) > JFOC_HANDOFF_MAX_DIFF)
-          {
-            hall_foc.phase_mismatch = 1U;
-            hallFocFinish(MOTOR_FAULT_INIT_FAIL);
-            return;
-          }
-          hall_foc.handoff_error = delta;
-          hall_foc.handoff_sample = n;
-        }
-        if (hall_foc.startup_stage == 2U)
-        {
-          const uint32_t elapsed = n - hall_foc.handoff_sample;
-          if (elapsed >= JFOC_BLEND_SAMPLES)
-          {
-            hall_foc.startup_stage = 3U;
-            theta_e = hall_theta;
-          }
-          else
-          {
-            const float blend = 1.0f -
-                (float)elapsed / (float)JFOC_BLEND_SAMPLES;
-            theta_e = wrapFloat(hall_theta + hall_foc.handoff_error * blend,
-                                0.0f, 2.0f * PI);
-          }
+          hall_foc.startup_stage = 3U;
+          theta_e = hall_theta;
         }
         else
-          theta_e = hall_theta;
+        {
+          const float blend = 1.0f -
+              (float)elapsed / (float)JFOC_BLEND_SAMPLES;
+          theta_e = wrapFloat(hall_theta + hall_foc.handoff_error * blend,
+                               0.0f, 2.0f * PI);
+        }
       }
+      else
+        theta_e = hall_theta; /* stage 3: true Hall-angle FOC */
     }
   }
-  motorCurrentLoop(id_ref, iq_ref, theta_e);
+  motorCurrentLoop(0.0f, iq_ref, theta_e);
   if (motor_state == MOTOR_STATE_FAULT || motor_fault != MOTOR_FAULT_NONE)
   {
     if (motor_fault == MOTOR_FAULT_SW_OVERCURRENT) hall_foc.oc = 1U;
@@ -855,31 +1017,14 @@ void motorHallFocPrint(void)
   uartPrintf(_DEF_UART1, hall_foc.forced_selected ?
       "\r\n===== HALL-FOC J STARTUP TEST =====\r\n" :
       "\r\n===== HALL-ANGLE FOC H TEST =====\r\n");
-  if (!hall_foc.forced_selected)
-    uartPrintf(_DEF_UART1, "Angle: Hall interpolated (original 2->6 H baseline)\r\n");
-  if (!hall_foc.forced_selected)
-  {
-    uartPrintf(_DEF_UART1,
-        "H: Iq 1.7A -> 2.0A after 250ms (50ms ramp), SW phase OC 2.30A, max 650ms\r\n");
-    uartPrintf(_DEF_UART1,
-        "H edges before/after boost: %lu / %lu\r\n",
-        (unsigned long)hall_foc.h_edges_before_boost,
-        (unsigned long)hall_foc.h_edges_after_boost);
-  }
   if (hall_foc.forced_selected)
     uartPrintf(_DEF_UART1,
-        "J stage %u (0 align, 1 forced, 2 blend, 3 Hall); forward edges %lu; reverse/phase error %u/%u; handoff error %ld mrad\r\n",
+        "J stage %u (0 forced, 2 blend, 3 Hall); forward edges %lu; reverse/phase error %u/%u; handoff error %ld mrad\r\n",
         (unsigned int)hall_foc.startup_stage,
         (unsigned long)hall_foc.forward_edges,
         (unsigned int)hall_foc.reverse_edge,
         (unsigned int)hall_foc.phase_mismatch,
         (long)(hall_foc.handoff_error * 1000.0f));
-  if (hall_foc.forced_selected)
-    uartPrintf(_DEF_UART1, "J alignment: %lu Hall edges, last Hall %u; Id align %ld mA; Iq drive %ld mA\r\n",
-        (unsigned long)hall_foc.alignment_edges,
-        (unsigned int)hall_foc.alignment_hall,
-        (long)(JFOC_ALIGN_ID_A * 1000.0f),
-        (long)(JFOC_IQ_TARGET_A * 1000.0f));
   uartPrintf(_DEF_UART1, "Hall %u -> %u, confirmed edges %lu/%u\r\n",
       (unsigned int)hall_foc.first_hall, (unsigned int)hall_foc.last_hall,
       (unsigned long)hall_foc.edges,
@@ -902,12 +1047,11 @@ void motorHallFocPrint(void)
       (long)(hall_foc.last_vq*1000.0f),
       (long)(hall_foc.last_theta*1000.0f),
       (unsigned int)hall_foc.vq_limited);
-  uartPrintf(_DEF_UART1, "Stop: %s; Iq target %ld mA (150ms ramp), SW OC %ld mA, max %lums.\r\n",
+  uartPrintf(_DEF_UART1, "Stop: %s; Iq 0->%ld mA in 150ms, SW OC %ld mA, max %lums.\r\n",
       motor_fault != MOTOR_FAULT_NONE ? "FAULT" :
         (hall_foc.stopped_on_edges ? "HALL_EDGES" : "TIME_LIMIT"),
-      (long)((hall_foc.forced_selected ? JFOC_IQ_TARGET_A : HFOC_IQ_TARGET_A)*1000.0f),
-      (long)((hall_foc.forced_selected ? JFOC_OC_LIMIT_A : HFOC_OC_LIMIT_A)*1000.0f),
-      (unsigned long)(hall_foc.forced_selected ? 700U : 650U));
+      (long)(HFOC_IQ_TARGET_A*1000.0f), (long)(HFOC_OC_LIMIT_A*1000.0f),
+      (unsigned long)(hall_foc.forced_selected ? 700U : 450U));
   uartPrintf(_DEF_UART1, hall_foc.forced_selected ?
       "===== END HALL-FOC J STARTUP TEST =====\r\n" :
       "===== END HALL-ANGLE FOC H TEST =====\r\n");
@@ -1333,15 +1477,10 @@ static void motorOpenLoopDiagnostic(void)
     return;
   }
 
-  // T: absolute theta=0 stator field, 0.8A Id alignment, 0.8A Iq,
-  // then virtual field rotation; Hall is OBSERVATION ONLY.
-  // S/R: retained original Hall-estimated initial stator field and 0.4A.
-  // Id->Iq blend and theta advance are driven entirely by sample count.
+  // F/N remains the original fixed-Iq test for baseline comparison.
+  // S/R: actual d-axis alignment (100ms ramp + 250ms hold), smooth
+  // Id->Iq transition over 150ms, then a bounded virtual-angle sweep.
   // A Hall centre is an estimate: physical alignment is NOT guaranteed.
-  const float iq_target = open_loop_diag.absolute_start ?
-                          ABS_SWEEP_I_A : OPEN_LOOP_DIAG_IQ_REF_A;
-  const float align_target = open_loop_diag.absolute_start ?
-                             ABS_SWEEP_ALIGN_I_A : OPEN_LOOP_DIAG_ALIGN_ID_A;
   float id_cmd = 0.0f;
   float iq_cmd = 0.0f;
   if (n >= OPEN_LOOP_DIAG_SETTLE_SAMPLES)
@@ -1360,23 +1499,23 @@ static void motorOpenLoopDiagnostic(void)
     else if (open_loop_diag.fixed_only == OL_DIAG_MODE_FIXED_IQ)
     {
       iq_cmd = (float)open_loop_diag.command_direction *
-               iq_target * fraction;
+               OPEN_LOOP_DIAG_IQ_REF_A * fraction;
     }
     else if (n < OPEN_LOOP_DIAG_FIXED_END_SAMPLES)
     {
-      id_cmd = align_target * fraction;
+      id_cmd = OPEN_LOOP_DIAG_ALIGN_ID_A * fraction;
     }
     else if (n < OPEN_LOOP_DIAG_SWEEP_START_SAMPLES)
     {
       const float blend = (float)(n - OPEN_LOOP_DIAG_FIXED_END_SAMPLES) /
                           (float)OPEN_LOOP_DIAG_DQ_BLEND_SAMPLES;
-      id_cmd = align_target * (1.0f - blend);
+      id_cmd = OPEN_LOOP_DIAG_ALIGN_ID_A * (1.0f - blend);
       iq_cmd = (float)open_loop_diag.command_direction *
-               iq_target * blend;
+               OPEN_LOOP_DIAG_IQ_REF_A * blend;
     }
     else
     {
-      iq_cmd = (float)open_loop_diag.command_direction * iq_target;
+      iq_cmd = (float)open_loop_diag.command_direction * OPEN_LOOP_DIAG_IQ_REF_A;
       const float delta = (float)open_loop_diag.command_direction *
                           OPEN_LOOP_DIAG_SWEEP_SPEED_E * CUR_DT;
       open_loop_diag.angle_swept_e += delta;
@@ -1892,7 +2031,6 @@ void motorStart(void)
   open_loop_diag = (motor_ol_diag_t){0};
   open_loop_diag.command_direction = open_loop_diag_requested_direction;
   open_loop_diag.fixed_only = open_loop_diag_requested_fixed_only;
-  open_loop_diag.absolute_start = open_loop_diag_requested_absolute_start;
   open_loop_diag_prev_raw = motorOpenLoopDiagReadPins();
   open_loop_diag_prev_cached = hallGetState();
   open_loop_diag_mismatch_samples = 0U;
@@ -1908,12 +2046,9 @@ void motorStart(void)
     return;
   }
   open_loop_diag.start_hall = open_loop_diag_prev_raw;
-  // For T, the virtual current frame is pinned to absolute stator 0 rad.
-  // Hall is checked/logged as a sensor ONLY, never used to set theta_cmd.
-  // Other S/R/F/N diagnostics retain their original starting Hall estimate.
-  if (open_loop_diag.absolute_start)
-    open_loop_diag.theta_fixed = 0.0f;
-  else if (open_loop_diag.fixed_only == OL_DIAG_MODE_FIXED_ID_0)
+  // The initial Hall sector centre is ONLY the starting virtual Park angle.
+  // It is never used to overwrite theta_cmd as Hall edges are detected.
+  if (open_loop_diag.fixed_only == OL_DIAG_MODE_FIXED_ID_0)
     open_loop_diag.theta_fixed = 0.0f;
   else if (open_loop_diag.fixed_only == OL_DIAG_MODE_FIXED_ID_90)
     open_loop_diag.theta_fixed = PI * 0.5f;
@@ -3107,10 +3242,10 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_OPEN_LOOP) && (OPEN_LOOP_DIAG_ENABLE == 1U)
   const float current_loop_oc_limit =
-      hall_foc.selected ?
-        (hall_foc.forced_selected ? JFOC_OC_LIMIT_A : HFOC_OC_LIMIT_A) :
+      idstep.selected ? IDSTEP_OC_A :
+      (hall_foc.selected ? HFOC_OC_LIMIT_A :
       ((open_loop_diag.fixed_only >= OL_DIAG_MODE_FIXED_ID_0) ?
-       OL_FIXED_ID_OC_LIMIT_A : OPEN_LOOP_DIAG_OC_LIMIT_A);
+       OL_FIXED_ID_OC_LIMIT_A : OPEN_LOOP_DIAG_OC_LIMIT_A));
 #else
   const float current_loop_oc_limit = CURRENT_TEST_OC_LIMIT_A;
 #endif
@@ -3254,7 +3389,9 @@ static void motorSpeedLoop(void)
 static void motorOpenLoop(void)
 {
 #if OPEN_LOOP_DIAG_ENABLE == 1U
-  if (six_step.selected)
+  if (idstep.selected)
+    motorIdStepUpdate();
+  else if (six_step.selected)
     sixStepUpdate();
   else if (hall_foc.selected)
     motorHallFocUpdate();
@@ -3907,12 +4044,6 @@ void motorOpenLoopDiagSetFixedOnly(uint8_t fixed_only)
   if (motor_state == MOTOR_STATE_IDLE &&
       fixed_only <= OL_DIAG_MODE_FIXED_ID_90)
     open_loop_diag_requested_fixed_only = fixed_only;
-}
-
-void motorOpenLoopDiagSetAbsoluteStart(uint8_t enabled)
-{
-  if (motor_state == MOTOR_STATE_IDLE)
-    open_loop_diag_requested_absolute_start = enabled ? 1U : 0U;
 }
 
 bool motorOpenLoopDiagIsDone(void)

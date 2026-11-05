@@ -151,10 +151,8 @@ static void apPrintOpenLoopDiagnosis(void)
   const bool id_mode = (result.fixed_only == OL_DIAG_MODE_FIXED_ID_0 ||
                         result.fixed_only == OL_DIAG_MODE_FIXED_ID_90);
   const char *mode_name = id_mode ? "FIXED Id ALIGN" :
-                          (result.absolute_start ? "T ABSOLUTE 0deg + SWEEP" :
-                           (result.fixed_only ? "FIXED Iq" : "d-AXIS ALIGN + Iq SWEEP"));
-  const float mode_current = id_mode ? OL_FIXED_ID_REF_A :
-                             (result.absolute_start ? 0.80f : OPEN_LOOP_DIAG_IQ_REF_A);
+                          (result.fixed_only ? "FIXED Iq" : "d-AXIS ALIGN + Iq SWEEP");
+  const float mode_current = id_mode ? OL_FIXED_ID_REF_A : OPEN_LOOP_DIAG_IQ_REF_A;
   uartPrintf(_DEF_UART1, "\r\n===== %s CURRENT VECTOR TEST (%ld mA MAX) =====\r\n",
              mode_name, (long)(mode_current * 1000.0f));
   uartPrintf(_DEF_UART1, "Start Hall: %u, Fixed Theta: %ld mrad, %s max: %ld mA\r\n",
@@ -176,13 +174,9 @@ static void apPrintOpenLoopDiagnosis(void)
                (unsigned int)(OPEN_LOOP_DIAG_SETTLE_MS + OPEN_LOOP_DIAG_RAMP_MS + OPEN_LOOP_DIAG_FIXED_HOLD_MS),
                (long)(OPEN_LOOP_DIAG_SWEEP_SPEED_E * 1000.0f),
                (long)(result.angle_swept_e * 1000.0f));
-  uartPrintf(_DEF_UART1, "Angle source: %s (Hall used for edge logging only in T)\r\n",
-             result.absolute_start ? "ABSOLUTE STATOR 0 rad, no Hall angle" :
-                                     "existing mode/initial Hall estimate");
   if (!result.fixed_only)
-    uartPrintf(_DEF_UART1, "%s sequence: +Id align %ld mA, blend %u ms, sweep starts %u ms, total %u ms\r\n",
-               result.absolute_start ? "T" : "S/R",
-               (long)((result.absolute_start ? 0.80f : OPEN_LOOP_DIAG_ALIGN_ID_A) * 1000.0f),
+    uartPrintf(_DEF_UART1, "S/R sequence: +Id align %ld mA, blend %u ms, sweep starts %u ms, total %u ms\r\n",
+               (long)(OPEN_LOOP_DIAG_ALIGN_ID_A * 1000.0f),
                (unsigned int)OPEN_LOOP_DIAG_DQ_BLEND_MS,
                (unsigned int)(OPEN_LOOP_DIAG_SWEEP_START_SAMPLES / 20U),
                (unsigned int)OPEN_LOOP_DIAG_TOTAL_MS);
@@ -478,9 +472,7 @@ while (1)
   pwmDisableOutput();
   uartPrintf(_DEF_UART1, "\r\nFIXED / SLOW VECTOR DIAGNOSTIC READY - PWM OFF.\r\n");
   uartPrintf(_DEF_UART1, "F/N: fixed +/-Iq (current setting OPEN_LOOP_DIAG_IQ_REF_A), 360ms.\r\n");
-  uartPrintf(_DEF_UART1, "S/R: +Id alignment, Id/Iq blend, then rotating current (existing).\r\n");
-  uartPrintf(_DEF_UART1, "T: ABSOLUTE 0deg stator angle; +Id 0.8A align then +Iq 0.8A SWEEP; OC 1.5A.\r\n");
-  uartPrintf(_DEF_UART1, "T uses Hall for feedback/logging ONLY; automatically stops at 3 edges/fault/1.5s.\r\n");
+  uartPrintf(_DEF_UART1, "S/R: +Id alignment, Id/Iq blend, then rotating current (see def.h).\r\n");
   uartPrintf(_DEF_UART1, "Reset after ONE run. For the new fixed-Id test, run A first.\r\n");
   uartPrintf(_DEF_UART1, "Keep physical BKIN, phase OC and current-limited VBUS protection.\r\n");
   uartPrintf(_DEF_UART1, "P: short phase-mapping pulses (U+,U-,V+,V-,W+,W-); S/F/N/R unchanged.\r\n");
@@ -488,6 +480,7 @@ while (1)
   uartPrintf(_DEF_UART1, "C: Hall 6-step (existing configuration).\r\n");
   uartPrintf(_DEF_UART1, "H: HALL-FOC, real Hall theta, Iq 0->1.7A, 450ms, SW OC 1.9A.\r\n");
   uartPrintf(_DEF_UART1, "J: CURRENT-FOC angle startup -> Hall handoff, Iq <=1.7A, 700ms, SW OC 1.9A.\r\n");
+  uartPrintf(_DEF_UART1, "D: Id=0.4A fixed-field stepping 0..180deg e, 30deg steps, 2460ms max, OC=0.8A.\r\n");
   while (1)
   {
     if (uartAvailable(_DEF_UART1) > 0U)
@@ -500,6 +493,12 @@ while (1)
         motorOpenLoopDiagSetDirection(1);
         uartPrintf(_DEF_UART1, "FIXED Id ARM: theta=%s; Id=0.4A, Iq=0A, 210ms, OC=0.8A.\r\n",
                    ch == 'A' ? "0 deg" : "90 deg");
+        break;
+      }
+      if (ch == 'D')
+      {
+        motorIdStepSelect();
+        uartPrintf(_DEF_UART1, "D ARM: Id 0->0.4A, Iq=0, no Hall angle feedback, OC=0.8A.\r\n");
         break;
       }
       if (ch == 'H')
@@ -526,14 +525,6 @@ while (1)
         uartPrintf(_DEF_UART1, "PHASE MAP ARM: 6 pulses, 0.30 V, 0.4ms each; OC=0.8A.\r\n");
         break;
       }
-      if (ch == 'T')
-      {
-        motorOpenLoopDiagSetDirection(1);
-        motorOpenLoopDiagSetFixedOnly(OL_DIAG_MODE_SWEEP);
-        motorOpenLoopDiagSetAbsoluteStart(1U);
-        uartPrintf(_DEF_UART1, "T ARM: theta=0deg ABSOLUTE, Id align=0.8A, Iq sweep=0.8A, SW OC=1.5A, max 1500ms.\r\n");
-        break;
-      }
       if (ch == 'F' || ch == 'S' || ch == 'N' || ch == 'R')
       {
         const uint8_t fixed_only = (ch == 'F' || ch == 'N') ? 1U : 0U;
@@ -550,9 +541,21 @@ while (1)
   }
 #endif
 
-  motorStart();
-  motorSetCurrentReference(0.0f, 0.0f);
+  //motorStart();
+  //motorSetCurrentReference(0.0f, 0.0f);
 
+  uartPrintf(_DEF_UART1,
+             "[DBG1] Before motorStart\r\n");
+
+  motorStart();
+
+  uartPrintf(_DEF_UART1,
+             "[DBG2] After motorStart: State=%d, Fault=%d, D=%u\r\n",
+             (int)motorGetState(),
+             (int)motorGetFault(),
+             (unsigned int)motorIdStepIsSelected());
+
+  motorSetCurrentReference(0.0f, 0.0f);
 #if (CURRENT_FOC_BENCH_ENABLE == 1U) || (CURRENT_ADC_RAW_SCAN_ENABLE == 1U)
 
   pwmDisableOutput();
@@ -631,6 +634,12 @@ while (1)
              ((TIM1->BDTR & TIM_BDTR_MOE) == 0U))
     {
       pwmEnableOutput();
+      uartPrintf(_DEF_UART1,
+               "[DBG3] PWM: MOE=%u, State=%d, Fault=%d\r\n",
+               (unsigned int)
+                   ((TIM1->BDTR & TIM_BDTR_MOE) != 0U),
+               (int)motorGetState(),
+               (int)motorGetFault());
     }
     else
     {
@@ -1864,17 +1873,20 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
   // ISR has already disabled MOE on completion/trip.
   if (open_loop_stopped == false &&
       (motorOpenLoopDiagIsDone() ||
+       motorIdStepIsDone() ||
        motorPhaseMapDiagIsDone() ||
        motorSixStepIsDone() ||
        motorHallFocIsDone() ||
        motorGetState() == MOTOR_STATE_FAULT ||
        (now - open_loop_start) >
-           (motorSixStepIsSelected() ? 450U :
+           (motorIdStepIsSelected() ? (2460U + 300U) :
+            (motorSixStepIsSelected() ? 450U :
             (motorHallFocIsSelected() ? (motorHallFocIsForced() ? 900U : 650U) :
              (motorPhaseMapDiagIsSelected() ? PHASE_MAP_TEST_TIMEOUT_MS :
-              (OPEN_LOOP_DIAG_TOTAL_MS + 200U))))))
+              (OPEN_LOOP_DIAG_TOTAL_MS + 200U)))))))
   {
-    if (!motorOpenLoopDiagIsDone() && !motorPhaseMapDiagIsDone() &&
+    if (!motorOpenLoopDiagIsDone() && !motorIdStepIsDone() &&
+        !motorPhaseMapDiagIsDone() &&
         !motorSixStepIsDone() && !motorHallFocIsDone() &&
         motorGetState() == MOTOR_STATE_OPEN_LOOP)
     {
@@ -1891,6 +1903,8 @@ for (uint32_t i = 0U; i < l_sample_count; i++)
     }
     if (motorSixStepIsSelected())
       motorSixStepPrint();
+    else if (motorIdStepIsSelected())
+      motorIdStepPrint();
     else if (motorHallFocIsSelected())
       motorHallFocPrint();
     else if (motorPhaseMapDiagIsSelected())
