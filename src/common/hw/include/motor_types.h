@@ -14,11 +14,8 @@
 typedef enum
 {
   MOTOR_STATE_IDLE             = 0x00U,
-  MOTOR_STATE_READY            = 0x01U,
-  MOTOR_STATE_OPEN_LOOP        = 0x02U,
   MOTOR_STATE_CURRENT_LOOP     = 0x03U,
   MOTOR_STATE_SPEED_LOOP       = 0x04U,
-  MOTOR_STATE_POSITION_LOOP    = 0x05U,
   MOTOR_STATE_FAULT            = 0x06U,
 } motor_state_t;
 
@@ -29,12 +26,9 @@ typedef enum
   MOTOR_FAULT_ADC_OFFSET_FAIL  = 0x02U,
   MOTOR_FAULT_VBUS_LOW         = 0x03U,
   MOTOR_FAULT_ADC_REGULAR_FAIL = 0x04U,
-  MOTOR_FAULT_OVERCURRENT      = 0x05U,
-  MOTOR_FAULT_OPEN_LOOP_FAIL   = 0x06U,
   MOTOR_FAULT_BKIN             = 0x07U,
   MOTOR_FAULT_SW_OVERCURRENT   = 0x08U,
-  MOTOR_FAULT_HALL_INVALID     = 0x09U,   // Hall 입력이 유효하지 않을 때
-  MOTOR_FAULT_DIAG_TIMEOUT     = 0x0AU,   // ADC ISR 진단이 정해진 시간에 끝나지 않을 때
+  MOTOR_FAULT_ENCODER_INVALID  = 0x09U   // Invalid angle / speed; other checks user TODO
 } motor_fault_t;
 
 
@@ -51,13 +45,6 @@ typedef struct
   uint16_t b;
   uint16_t c;
 } motor_abc_u16_t;
-
-typedef struct
-{
-  int32_t a;
-  int32_t b;
-  int32_t c;
-} motor_abc_s32_t;
 
 typedef struct
 {

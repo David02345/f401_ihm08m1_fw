@@ -9,6 +9,10 @@
 
 
 static volatile uint32_t hall_last_cycle = 0;
+static volatile uint32_t hall_last_interval_cycles = 0U;
+
+/* No-edge timeout is at most 250ms, or two measured sector periods. */
+#define HALL_EST_MAX_NO_EDGE_US 250000U
 
 static volatile uint8_t hall_state = 0;
 static volatile int8_t hall_sector = -1;
@@ -31,6 +35,16 @@ static uint8_t hallReadState(void);
 static int8_t hallGetSector(uint8_t state);
 static float hallSectorToElectricalAngle(int8_t sector);
 
+static bool hallMotionExpired(uint32_t now)
+{
+  const uint32_t f = cycleGetFreq();
+  if (f == 0U || hall_last_interval_cycles == 0U) return true;
+  const uint32_t max_cycles = (uint32_t)(((uint64_t)f * HALL_EST_MAX_NO_EDGE_US) / 1000000ULL);
+  const uint32_t interval_cap = hall_last_interval_cycles > UINT32_MAX / 2U ? UINT32_MAX : hall_last_interval_cycles * 2U;
+  const uint32_t limit = (interval_cap < max_cycles) ? interval_cap : max_cycles;
+  return (uint32_t)(now - hall_last_cycle) >= limit;
+}
+
 bool hallInit(void)
 {
   hall_state = hallReadState();
@@ -39,6 +53,7 @@ bool hallInit(void)
   hall_speed_e = 0.0f;
   hall_speed_m = 0.0f;
   hall_dir = 0;
+  hall_last_interval_cycles = 0U;
 
   if (hall_sector < 0)
   {
@@ -135,25 +150,17 @@ void hallUpdate(void)
     return;
   }
 
-  if (sector == hall_prev_sector)
-  {
-    hall_sector = sector;
-    hall_angle_e = hallSectorToElectricalAngle(sector);
-    hall_valid = true;
-    return;
-  }
-
   new_dir = 0;
 
-  if (hall_prev_sector >= 0)
+  if (hall_sector >= 0)
   {
-    diff = sector - hall_prev_sector;
+    diff = sector - hall_sector;
 
-    if ((diff == -1) || (diff == 5))
+    if ((diff == 1) || (diff == -5))
     {
       new_dir = 1;
     }
-    else if ((diff == 1) || (diff == -5))
+    else if ((diff == -1) || (diff == 5))
     {
       new_dir = -1;
     }
@@ -202,6 +209,7 @@ void hallUpdate(void)
   }
 
   hall_prev_sector = sector;
+  hall_last_interval_cycles = dt_cycles;
   hall_last_cycle = now_cycle;
   hall_valid = true;
 }
@@ -218,19 +226,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 void hallUpdateTimeout(void)
 {
-  uint32_t now_cycle = cycleGet();
-  uint32_t timeout_cycles = (cycleGetFreq() / 1000000U) * HALL_STOP_TIMEOUT_US;
-
-  if ((now_cycle - hall_last_cycle) > timeout_cycles)
+  if (hallMotionExpired(cycleGet()))
   {
     hall_speed_e = 0.0f;
     hall_speed_m = 0.0f;
     hall_dir = 0;
-
-    if (hall_sector >= 0)
-    {
-      hall_angle_e = hallSectorToElectricalAngle(hall_sector);
-    }
+    if (hall_sector >= 0) hall_angle_e = hallSectorToElectricalAngle(hall_sector);
   }
 }
 uint8_t hallGetState(void)
@@ -250,12 +251,12 @@ bool hallIsValid(void)
 
 float hallGetElectricalSpeed(void)
 {
-  return hall_speed_e;
+  return hallMotionExpired(cycleGet()) ? 0.0f : hall_speed_e;
 }
 
 float hallGetMechanicalSpeed(void)
 {
-  return hall_speed_m;
+  return hallMotionExpired(cycleGet()) ? 0.0f : hall_speed_m;
 }
 
 float hallGetElectricalAngle(void)
@@ -265,7 +266,10 @@ float hallGetElectricalAngle(void)
   float theta_e;
   float delta_theta;
 
-  elapsed_cycle = cycleGet() - hall_last_cycle;
+  const uint32_t now = cycleGet();
+  if (hall_sector < 0) return 0.0f;
+  if (hallMotionExpired(now)) return hallSectorToElectricalAngle(hall_sector);
+  elapsed_cycle = now - hall_last_cycle;
   elapsed_sec = (float)elapsed_cycle / (float)cycleGetFreq();
 
   delta_theta = hall_speed_e * elapsed_sec;
@@ -299,14 +303,14 @@ static float hallSectorToElectricalAngle(int8_t sector)
 {
   float theta;
 
-  theta = -(float)sector * HALL_SECTOR_ANGLE_E + HALL_ELEC_OFFSET;
+  theta = (float)sector * HALL_SECTOR_ANGLE_E + HALL_ELEC_OFFSET;
 
   return wrapFloat(theta, 0.0f, 2.0f * PI);
 }
 
 int8_t hallGetDirection(void)
 {
-  return hall_dir;
+  return hallMotionExpired(cycleGet()) ? 0 : hall_dir;
 }
 
 uint32_t hallGetIrqCount(void)

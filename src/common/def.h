@@ -85,14 +85,8 @@
 #define INTEGRAL_IQ_MIN                  -0.5f
 #define INTEGRAL_SPD_MAX                  1.0f
 #define INTEGRAL_SPD_MIN                 -1.0f
-/*
 #define OUTPUT_VD_REF_MAX                 0.5f
-#define OUTPUT_VD_REF_MIN                 -0.5f
-#define OUTPUT_VQ_REF_MAX                 0.5f
-#define OUTPUT_VQ_REF_MIN                 -0.5f
-*/
-#define OUTPUT_VD_REF_MAX                 0.30f
-#define OUTPUT_VD_REF_MIN                -0.30f
+#define OUTPUT_VD_REF_MIN                -0.5f
 #define OUTPUT_VQ_REF_MAX                 0.5f
 #define OUTPUT_VQ_REF_MIN                -0.5f
 #define OUTPUT_ID_REF_MAX                 0.5f
@@ -121,6 +115,8 @@
   */
 #define GEAR_RATIO                        1
 #define GEAR_EFFICIENCY                   1.0f
+#define ENC_MAX_COUNT                     4000
+#define COUNT_TO_ANGLE                    2*PI / ENC_MAX_COUNT
 #define MOTOR_POLE_PAIRS                  4
 #define MOTOR_PHASE_R                     0.0784f     // Ohm
 #define MOTOR_LQ                          0.00020f    // H
@@ -162,179 +158,15 @@
 #define OPEN_LOOP_TARGET_VQ               0.4f
 
 #define OPEN_LOOP_TEST_TIME_MS            8000U
-
-/** ISR-bounded ROTATING CURRENT VECTOR diagnostic (NO manual shaft motion).
- * Reuses the proven 20 kHz current PI. After a 100 ms current ramp, advance
- * a VIRTUAL Park angle at a slow electrical speed; do NOT replace it with
- * Hall sector centres on edges. Hall is monitored independently as feedback.
- * This is neither closed-loop FOC rotor angle control nor a speed controller.
- * Software OC responds AFTER sampling; retain independent PSU/BKIN protection.
- */
-#define OPEN_LOOP_DIAG_ENABLE              1U
-#define OPEN_LOOP_DIAG_SETTLE_MS           10U   // neutral PWM before applying torque
-#define OPEN_LOOP_DIAG_DRIVE_MS            1490U // 1500 ms total incl. settle; motor OFF in ISR
-#define OPEN_LOOP_DIAG_IQ_REF_A            0.4f  // retain tested 0.8A with 1.5A phase guard
-#define OPEN_LOOP_DIAG_OC_LIMIT_A          2.0f  // measured phase-current software trip (A)
-#define OPEN_LOOP_DIAG_RAMP_MS             100U  // current ramp after settle
-#define OPEN_LOOP_DIAG_RAMP_SAMPLES        ((OPEN_LOOP_DIAG_RAMP_MS * 1000U) / 50U)
-#define OPEN_LOOP_DIAG_LOG_DIVIDER         400U  // every 20 ms at 20 kHz
-#define OPEN_LOOP_DIAG_MAX_LOGS            90U  // up to 1500 ms at 20ms interval
-#define OPEN_LOOP_DIAG_FIXED_HOLD_MS       250U  // after 100ms Id ramp (S/R), hold alignment
-#define OPEN_LOOP_DIAG_ALIGN_ID_A          0.40f // S/R only, positive d-axis alignment current
-#define OPEN_LOOP_DIAG_DQ_BLEND_MS         150U  // smooth Id->Iq transition, S/R only
-#define OPEN_LOOP_DIAG_DQ_BLEND_SAMPLES    ((OPEN_LOOP_DIAG_DQ_BLEND_MS * 1000U) / 50U)
-#define OPEN_LOOP_DIAG_SWEEP_SPEED_E       1.5f // electrical rad/s; slow sweep after fixed hold
-#define OPEN_LOOP_DIAG_MAX_EDGES           24U
-#define OPEN_LOOP_DIAG_TARGET_EDGES        3U  // stop after 3 confirmed Hall transitions
-#define OPEN_LOOP_DIAG_SETTLE_SAMPLES      ((OPEN_LOOP_DIAG_SETTLE_MS * 1000U) / 50U)
-#define OPEN_LOOP_DIAG_TOTAL_SAMPLES       (((OPEN_LOOP_DIAG_SETTLE_MS + OPEN_LOOP_DIAG_DRIVE_MS) * 1000U) / 50U)
-#define OPEN_LOOP_DIAG_TOTAL_MS            (OPEN_LOOP_DIAG_SETTLE_MS + OPEN_LOOP_DIAG_DRIVE_MS)
-#define OPEN_LOOP_DIAG_FIXED_END_SAMPLES   (((OPEN_LOOP_DIAG_SETTLE_MS + OPEN_LOOP_DIAG_RAMP_MS + OPEN_LOOP_DIAG_FIXED_HOLD_MS) * 1000U) / 50U)
-#define OPEN_LOOP_DIAG_SWEEP_START_SAMPLES (OPEN_LOOP_DIAG_FIXED_END_SAMPLES + OPEN_LOOP_DIAG_DQ_BLEND_SAMPLES)
-
-#if OPEN_LOOP_DIAG_ENABLE
-#if OPEN_LOOP_DIAG_SETTLE_MS < 1U || OPEN_LOOP_DIAG_DRIVE_MS > 1500U || \
-    OPEN_LOOP_DIAG_RAMP_MS < 1U || \
-    (OPEN_LOOP_DIAG_RAMP_MS + OPEN_LOOP_DIAG_FIXED_HOLD_MS + OPEN_LOOP_DIAG_DQ_BLEND_MS) >= OPEN_LOOP_DIAG_DRIVE_MS || \
-    OPEN_LOOP_DIAG_LOG_DIVIDER == 0U
-#error "Check rotating-vector diagnostic timing"
-#endif
-#endif
-
 /**
   * @}
   */
 
+
 /** @defgroup Current Loop Define
   * @{
   */
-#define CURRENT_NEUTRAL_DIAG_ENABLE       1U
-#define CURRENT_SW_BREAK_TEST_ENABLE      0U
-#define CURRENT_SW_BREAK_TRIGGER_SAMPLE   20U
-
-#define CURRENT_ADC_NOISE_TEST_ENABLE     0U
-#define CURRENT_ADC_PWM_OFF_TEST_ENABLE   0U
-#define CURRENT_ADC_SEQUENCE_TEST_ENABLE  0U
-#define CURRENT_ADC_RAW_SCAN_ENABLE       0U  // ADC Raw 스파이크 검사 (MOE OFF, FOC OFF)
-#define CURRENT_ADC_RAW_SPIKE_COUNTS      16U // Offset에서 16 Count 이상 벗어나면 이상 샘플로 기록
-
-#define CURRENT_ADC_UART_SILENT_TEST      0U  // UART OFF 상태에서 10초 동안 Raw Scan 실행
-#define CURRENT_ADC_UART_SILENT_MS        CURRENT_ADC_PWM_ON_SCAN_MS
-// A-3: 측정 중 500ms마다 UART 송신
-// 0 = A-2, 1 = A-3
-#define CURRENT_ADC_TEST_UART_ENABLE      0U
-#define CURRENT_ADC_SCAN_OC_LIMIT_A       0.8f
-// Raw Scan 중 PWM ON 허용
-#define CURRENT_ADC_PWM_ON_SCAN_ENABLE    0U
-// 처음에는 100ms, 이후 1000ms -> 10000ms
-#define CURRENT_ADC_PWM_ON_SCAN_MS        100U
-
-
-// 신규 Iq Step Response 시험
-#define CURRENT_IQ_STEP_TEST_ENABLE       0U
-#define CURRENT_IQ_STEP_STAGE_SAMPLES     100U
-#define CURRENT_IQ_STEP_REF_A             0.05f
-
-// 신규 Hall FOC 회전 진단
-#define CURRENT_ROTATION_TEST_ENABLE      1U
-#define CURRENT_ROTATION_REF_A            0.3f
-#define CURRENT_ROTATION_START_SAMPLE     200U
-#define CURRENT_ROTATION_END_SAMPLE       2200U
-#define CURRENT_ROTATION_LOG_DIVIDER      200U
-
-#define CURRENT_ROTATION_ANGLE_SWEEP_ENABLE  0U
-#define CURRENT_ROTATION_SWEEP_SPEED_E       6.0f
-
-#define CURRENT_FOC_BENCH_ENABLE          0U // PWM 출력 없이 FOC 계산 시간 측정
-#define CURRENT_FOC_BENCH_DIAG_LOAD       0U // FOC 벤치마크에 Hall 검사 및 로그 저장 부하 추가
-
-
-#if (CURRENT_IQ_STEP_TEST_ENABLE == 1U) && \
-    ((CURRENT_NEUTRAL_DIAG_ENABLE != 1U) || \
-     (CURRENT_ADC_NOISE_TEST_ENABLE != 0U) || \
-     (CURRENT_ADC_SEQUENCE_TEST_ENABLE != 0U) || \
-     (CURRENT_ADC_PWM_OFF_TEST_ENABLE != 0U))
-#error "Iq step test requires current PI diagnostic mode"
-#endif
-
-#if (CURRENT_ROTATION_TEST_ENABLE == 1U)
-
-#define CURRENT_LOOP_TEST_TIME_MS         130U
-
-#elif (CURRENT_ADC_SEQUENCE_TEST_ENABLE == 1U)
-
-#define CURRENT_LOOP_TEST_TIME_MS         20U
-
-#elif (CURRENT_IQ_STEP_TEST_ENABLE == 1U)
-
-#define CURRENT_LOOP_TEST_TIME_MS         15U
-
-#elif (CURRENT_ADC_NOISE_TEST_ENABLE == 1U)
-
-#define CURRENT_LOOP_TEST_TIME_MS         10U
-
-#else
-
-#define CURRENT_LOOP_TEST_TIME_MS         10U
-
-#endif
-#define CURRENT_LOOP_PERIOD_US            50U
-
-#define CURRENT_LOOP_TEST_SAMPLE_COUNT    ((CURRENT_LOOP_TEST_TIME_MS * 1000U) / CURRENT_LOOP_PERIOD_US)
-
-#define CURRENT_TEST_OC_LIMIT_A           0.8f
-
-#define CURRENT_TEST_V_ALPHA              0.00f
-#define CURRENT_TEST_V_BETA               0.04f
-
-#define CURRENT_NEUTRAL_DUTY              0.5f
-
-#if (CURRENT_ROTATION_TEST_ENABLE == 1U)
-
-#define CURRENT_L_TEST_SAMPLE_COUNT ((CURRENT_LOOP_TEST_SAMPLE_COUNT \
-      + CURRENT_ROTATION_LOG_DIVIDER - 1U) / CURRENT_ROTATION_LOG_DIVIDER)
-
-// Noise Test 비활성 상태에서 큰 미사용 배열 할당 방지
-#define CURRENT_NOISE_TEST_SAMPLE_COUNT   1U
-
-#else
-
-#define CURRENT_L_TEST_SAMPLE_COUNT       CURRENT_LOOP_TEST_SAMPLE_COUNT
-
-#define CURRENT_NOISE_TEST_SAMPLE_COUNT   CURRENT_LOOP_TEST_SAMPLE_COUNT
-
-#endif
-
-#if (CURRENT_ROTATION_TEST_ENABLE == 1U) && \
-    ((CURRENT_NEUTRAL_DIAG_ENABLE != 1U) || \
-     (CURRENT_ADC_NOISE_TEST_ENABLE != 0U) || \
-     (CURRENT_ADC_PWM_OFF_TEST_ENABLE != 0U) || \
-     (CURRENT_ADC_SEQUENCE_TEST_ENABLE != 0U) || \
-     (CURRENT_IQ_STEP_TEST_ENABLE != 0U))
-#error "Rotation test mode configuration error"
-#endif
-
-#if (CURRENT_ROTATION_TEST_ENABLE == 1U) && \
-    (CURRENT_ROTATION_END_SAMPLE >= CURRENT_LOOP_TEST_SAMPLE_COUNT)
-#error "Rotation end must precede test completion"
-
-#endif
-
-#if (CURRENT_ADC_PWM_ON_SCAN_ENABLE == 1U) && \
-    ((CURRENT_ADC_RAW_SCAN_ENABLE != 1U) || \
-     (CURRENT_ADC_UART_SILENT_TEST != 1U) || \
-     (CURRENT_ADC_NOISE_TEST_ENABLE != 0U) || \
-     (CURRENT_ROTATION_TEST_ENABLE != 0U) || \
-     (CURRENT_FOC_BENCH_ENABLE != 0U))
-#error "PWM ON scan requires exclusive Raw Scan mode"
-#endif
-
-#if CURRENT_ROTATION_TEST_ENABLE
-#define CURRENT_DIAG_TAIL_SAMPLES         10U
-#else
-#define CURRENT_DIAG_TAIL_SAMPLES         20U
-#endif
-
+#define CURRENT_TEST_OC_LIMIT_A       0.80f
 /**
   * @}
   */

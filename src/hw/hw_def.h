@@ -18,7 +18,7 @@
 #define MOTOR_CONTROL_SPEED               2
 #define MOTOR_CONTROL_POSITION            3
 
-#define MOTOR_CONTROL_MODE                MOTOR_CONTROL_OPEN_LOOP
+#define MOTOR_CONTROL_MODE                MOTOR_CONTROL_CURRENT
 
 #define _USE_MOTOR_SIXSTEP                0
 #define _USE_MOTOR_FOC                    1
@@ -30,11 +30,8 @@
 #endif
 
 
-#define _USE_ENCODER                      0
-
-#define _USE_HALL_SENSOR                  1
-#define _USE_HALL_TEST_ONLY               0
-#define _USE_HALL_OFFSET_CALIBRATION      0
+#define _USE_ENCODER                      1
+#define _USE_HALL_SENSOR                  0
 
 
 #define _USE_HW_ADC
@@ -43,6 +40,19 @@
 #define _USE_HW_RESET
 //#define _USE_HW_CDC
 #define _USE_HW_FLASH
+
+
+/* SAFETY INTERLOCK: encoder.c is intentionally still a stub.
+ * Keep 0 until the user implements and validates encoder feedback.
+ * Setting 1 is NOT a substitute for verifying encoder angle / BKIN. */
+#define MOTOR_ALLOW_POWER_STAGE           0U
+
+#define _USE_HW_ADC
+#define _USE_HW_LED
+#define HW_LED_MAX_CH                     1
+#define _USE_HW_UART
+#define HW_UART_MAX_CH                    2
+
 
 #define _USE_HW_LED
 #define      HW_LED_MAX_CH                1

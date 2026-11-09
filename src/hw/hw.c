@@ -22,4 +22,5 @@ void hwInit(void)
   //flashInit();
 
   motorInit();
+  pwmDisableOutput(); // 부팅시 PWM disable
 }

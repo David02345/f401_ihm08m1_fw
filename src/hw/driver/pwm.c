@@ -9,11 +9,6 @@
 
 TIM_HandleTypeDef htim1;
 
-TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-TIM_MasterConfigTypeDef sMasterConfig = {0};
-TIM_OC_InitTypeDef sConfigOC = {0};
-TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
-
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef* timHandle);
 
 static volatile bool pwm_break_fault = false;
@@ -105,6 +100,11 @@ bool pwmGetBreakSnapshot(pwm_break_snapshot_t *snapshot)
 bool pwmInit(void)
 {
   bool ret = true;
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
 
   htim1.Instance               = TIM1;
   htim1.Init.Prescaler         = 0;

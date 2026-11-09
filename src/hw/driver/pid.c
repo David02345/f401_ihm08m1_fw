@@ -51,6 +51,36 @@ float piController(pid_ctrl_t *pi, float ref, float feedback, float dt)
   return pi->output;
 }
 
+/* Conditional integration anti-windup, for the CURRENT PI loops only.
+ * If the proposed integral would push an already saturated output further
+ * into saturation, hold the previous integral. Otherwise integrate so the
+ * controller can unwind after a polarity change. Never change Kp/Ki. */
+float piControllerAntiWindup(pid_ctrl_t *pi, float ref, float feedback, float dt)
+{
+  if (pi == NULL || dt <= 0.0f)
+  {
+    return 0.0f;
+  }
+
+  const float error = ref - feedback;
+  const float proportional = pi->kp * error;
+  const float old_integral = pi->integral;
+  const float proposed_integral = clampFloat(
+      old_integral + pi->ki * error * dt,
+      pi->integral_min, pi->integral_max);
+  const float proposed_output = proportional + proposed_integral;
+
+  if (!((proposed_output > pi->out_max && error > 0.0f) ||
+        (proposed_output < pi->out_min && error < 0.0f)))
+  {
+    pi->integral = proposed_integral;
+  }
+
+  pi->output = clampFloat(proportional + pi->integral,
+                           pi->out_min, pi->out_max);
+  return pi->output;
+}
+
 float pdController(pid_ctrl_t *pd, float ref, float feedback, float dt)
 {
   if (pd == NULL || dt <= 0.0f)

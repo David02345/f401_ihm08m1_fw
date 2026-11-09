@@ -32,6 +32,7 @@ typedef struct
 
 bool pidInit(pid_ctrl_t *pid, float kp, float ki, float kd, float out_min, float out_max, float int_min, float int_max);
 float piController(pid_ctrl_t *pi, float ref, float feedback, float dt);
+float piControllerAntiWindup(pid_ctrl_t *pi, float ref, float feedback, float dt);
 float pdController(pid_ctrl_t *pd, float ref, float feedback, float dt);
 void pidReset(pid_ctrl_t *pi);
 

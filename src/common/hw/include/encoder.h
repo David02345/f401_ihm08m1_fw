@@ -14,10 +14,12 @@
 
 bool encoderInit(void);
 uint32_t encoderGetCount(void);
+void encoderUpdateSpeed(void);
 float encoderGetElectricalSpeed(void);
 float encoderGetMechanicalSpeed(void);
 float encoderGetElectricalAngle(void);
 float encoderGetMechanicalAngle(void);
+float encoderGetGearedAngle(void);
 
 
 #endif /* SRC_COMMON_HW_INCLUDE_ENCODER_H_ */
