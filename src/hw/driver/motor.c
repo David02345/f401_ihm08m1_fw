@@ -10,16 +10,23 @@ static volatile motor_fault_t motor_fault = MOTOR_FAULT_NONE;
 static volatile motor_monitor_t motor_monitor;
 static motor_duty_t motor_duty;
 static pid_ctrl_t pi_id, pi_iq, pi_spd;
+
 static volatile float motor_vbus = 0.0f;
+
 static volatile uint16_t motor_speed_cmd_raw = 0U;
 static volatile uint16_t motor_temp_raw = 0U;
+
 static float current_id_ref = 0.0f;
 static float current_iq_ref = 0.0f;
-static float speed_w_target = 0.0f;
+
+static volatile float speed_w_target = 0.0f;
 static float speed_w_ref = 0.0f;
 static float speed_w_meas = 0.0f;
 static uint16_t speed_loop_divider = 0U;
 static volatile bool power_output_armed = false;
+
+static volatile uint32_t align_count = 0U;
+static int32_t align_start_count = 0;
 
 bool motorInit(void)
 {
@@ -28,17 +35,17 @@ bool motorInit(void)
   motor_state = MOTOR_STATE_IDLE;
   motor_fault = MOTOR_FAULT_NONE;
 
-  if(pidInit(&pi_id, CUR_KP, CUR_KI, CUR_KD, OUTPUT_ID_REF_MIN, OUTPUT_ID_REF_MAX, INTEGRAL_ID_MIN, INTEGRAL_ID_MAX) != true)
+  if(pidInit(&pi_id, CUR_KP, CUR_KI, CUR_KD, OUTPUT_VD_REF_MIN, OUTPUT_VD_REF_MAX, INTEGRAL_ID_MIN, INTEGRAL_ID_MAX) != true)
   {
     ret = false;
     motor_state = MOTOR_STATE_FAULT;
   }
-  if(pidInit(&pi_iq, CUR_KP, CUR_KI, CUR_KD, OUTPUT_IQ_REF_MIN, OUTPUT_IQ_REF_MAX, INTEGRAL_IQ_MIN, INTEGRAL_IQ_MAX) != true)
+  if(pidInit(&pi_iq, CUR_KP, CUR_KI, CUR_KD, OUTPUT_VQ_REF_MIN, OUTPUT_VQ_REF_MAX, INTEGRAL_IQ_MIN, INTEGRAL_IQ_MAX) != true)
   {
     ret = false;
     motor_state = MOTOR_STATE_FAULT;
   }
-  if(pidInit(&pi_spd, SPD_KP, SPD_KI, SPD_KD, OUTPUT_SPD_REF_MIN, OUTPUT_SPD_REF_MAX, INTEGRAL_SPD_MIN, INTEGRAL_SPD_MAX) != true)
+  if(pidInit(&pi_spd, SPD_KP, SPD_KI, SPD_KD, OUTPUT_IQ_REF_MIN, OUTPUT_IQ_REF_MAX, INTEGRAL_SPD_MIN, INTEGRAL_SPD_MAX) != true)
   {
     ret = false;
     motor_state = MOTOR_STATE_FAULT;
@@ -70,43 +77,67 @@ bool motorInit(void)
     motor_state = MOTOR_STATE_FAULT;
   }
 #elif _USE_ENCODER
+  if(encoderInit() != true)
+  {
+    ret = false;
+    motor_state = MOTOR_STATE_FAULT;
+  }
+#endif
   if (ret != true)
   {
     motorSetFault(MOTOR_FAULT_INIT_FAIL);
   }
-#endif
-
   return ret;
 }
 
 void motorStart(void)
 {
 #if MOTOR_ALLOW_POWER_STAGE == 0U
-  /* Encoder drivers currently return zero / lack true angle calibration. */
+
   pwmDisableOutput();
   return;
 #else
-  if (motor_state != MOTOR_STATE_IDLE) return;
+  if (motor_state != MOTOR_STATE_IDLE)
+  {
+    return;
+  }
   if (!adcUpdateRegular())
   {
     motorSetFault(MOTOR_FAULT_ADC_REGULAR_FAIL);
     return;
   }
+
   motor_vbus = adcGetVbusVoltage();
+
   if (motor_vbus < MOTOR_VBUS_MIN)
   {
     motorSetFault(MOTOR_FAULT_VBUS_LOW);
     return;
   }
+
   motor_speed_cmd_raw = adcGetSpeedRaw();
   motor_temp_raw = adcGetTempRaw();
-  pidReset(&pi_id); pidReset(&pi_iq); pidReset(&pi_spd);
-  current_id_ref = 0.0f; current_iq_ref = 0.0f;
-  speed_w_ref = 0.0f; speed_w_meas = 0.0f; speed_w_target = 0.0f;
+
+  pidReset(&pi_id);
+  pidReset(&pi_iq);
+  pidReset(&pi_spd);
+
+  align_count = 0U;
+  align_start_count = 0;
+
+  encoderClearCalibration();
+  encoderResetSpeedTracking();
+
+  current_id_ref = 0.0f;
+  current_iq_ref = 0.0f;
+  speed_w_ref = 0.0f;
+  speed_w_meas = 0.0f;
   speed_loop_divider = 0U;
+
   pwmSetDuty(0.5f, 0.5f, 0.5f);
   adcInjectedStart();
   pwmStart();
+
   if (!adcCalibrateCurrentOffset())
   {
     motorSetFault(MOTOR_FAULT_ADC_OFFSET_FAIL);
@@ -117,20 +148,17 @@ void motorStart(void)
     motorSetFault(MOTOR_FAULT_BKIN);
     return;
   }
-#if MOTOR_CONTROL_MODE == MOTOR_CONTROL_CURRENT
-  motor_state = MOTOR_STATE_CURRENT_LOOP;
-#elif MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
-  motor_state = MOTOR_STATE_SPEED_LOOP;
-#else
-#error "Use CURRENT or SPEED for encoder FOC"
-#endif
-  /* Avoid treating an ADC callback between state-change and MOE as a fault. */
+
+  motor_state = MOTOR_STATE_ALIGN;
+
   pwmEnableOutput();
+
   if ((TIM1->BDTR & TIM_BDTR_MOE) == 0U)
   {
     motorSetFault(MOTOR_FAULT_BKIN);
     return;
   }
+
   power_output_armed = true;
 #endif
 }
@@ -141,17 +169,106 @@ void motorStop(void)
   pwmDisableOutput();
   adcInjectedStop();
   pwmStop();
-  pidReset(&pi_id); pidReset(&pi_iq); pidReset(&pi_spd);
-  current_id_ref = 0.0f; current_iq_ref = 0.0f;
-  speed_w_target = 0.0f; speed_w_ref = 0.0f; speed_w_meas = 0.0f;
+
+  pidReset(&pi_id);
+  pidReset(&pi_iq);
+  pidReset(&pi_spd);
+
+  current_id_ref = 0.0f;
+  current_iq_ref = 0.0f;
+  speed_w_target = 0.0f;
+  speed_w_ref = 0.0f;
+  speed_w_meas = 0.0f;
   speed_loop_divider = 0U;
   motor_state = MOTOR_STATE_IDLE;
 }
 
+void motorAlign(void)
+{
+  if(motor_state != MOTOR_STATE_ALIGN)
+  {
+    return;
+  }
+  float id_align_ref;
+
+  if (align_count < ALIGN_RAMP_TICKS)
+  {
+    id_align_ref = ALIGN_ID * ((float)(align_count + 1U) / (float)ALIGN_RAMP_TICKS);
+  }
+  else
+  {
+    id_align_ref = ALIGN_ID;
+  }
+
+  motorCurrentLoop(id_align_ref, 0.0f, ALIGN_THETA);
+
+  if (motor_state == MOTOR_STATE_FAULT)
+  {
+    return;
+  }
+
+  const uint32_t total_ticks = ALIGN_RAMP_TICKS + ALIGN_HOLD_TICKS;
+  align_count++;
+
+  if (align_count == (total_ticks - ALIGN_SETTLE_TICKS))
+  {
+    align_start_count = (int32_t)encoderGetCount();
+  }
+
+  if (align_count < total_ticks)
+  {
+    return;
+  }
+
+  int32_t end_count = (int32_t)encoderGetCount();
+  int32_t delta = end_count - align_start_count;
+
+  if (delta > (int32_t)(ENCODER_MAX_COUNT / 2U))
+  {
+    delta -= (int32_t)ENCODER_MAX_COUNT;
+  }
+  else if (delta < -(int32_t)(ENCODER_MAX_COUNT / 2U))
+  {
+    delta += (int32_t)ENCODER_MAX_COUNT;
+  }
+
+  if (delta > ALIGN_SETTLE_MAX_COUNTS || delta < -ALIGN_SETTLE_MAX_COUNTS)
+  {
+    motorSetFault(MOTOR_FAULT_ALIGN_UNSTABLE);
+    return;
+  }
+
+  float theta_raw = encoderGetElectricalAngle();
+
+  float offset = ALIGN_THETA - theta_raw;
+
+  encoderSetElectricalOffset(offset);
+
+  if (!encoderIsCalibrated())
+  {
+    motorSetFault(MOTOR_FAULT_ENCODER_INVALID);
+    return;
+  }
+
+  encoderResetSpeedTracking();
+
+  pidReset(&pi_id);
+  pidReset(&pi_iq);
+  pidReset(&pi_spd);
+
+  current_id_ref = 0.0f;
+  current_iq_ref = 0.0f;
+
+  speed_w_target = 0.0f;
+  speed_w_ref = 0.0f;
+  speed_w_meas = 0.0f;
+  speed_loop_divider = 0U;
+
+  motor_state = MOTOR_STATE_CURRENT_LOOP;
+}
+
 void motorLowSpeedTask(void)
 {
-  if (motor_state != MOTOR_STATE_IDLE) return;
-  /* Permit PWM-off encoder testing with motor VBUS disconnected. */
   if (!adcUpdateRegular())
   {
     motorSetFault(MOTOR_FAULT_ADC_REGULAR_FAIL);
@@ -163,20 +280,18 @@ void motorLowSpeedTask(void)
 }
 
 
-static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
+void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 {
   motor_abc_f_t i_abc;
   motor_alphabeta_t i_ab, v_ab;
   motor_dq_t i_dq, v_dq;
 
-  /* PWM-ADC injected sampling is unchanged from the original project. */
   adcGetPhaseCurrent(&i_abc);
   motor_monitor.ia = i_abc.a;
   motor_monitor.ib = i_abc.b;
   motor_monitor.ic = i_abc.c;
 
-  if (!isfinite(theta_e) || !isfinite(i_abc.a) || !isfinite(i_abc.b) ||
-      !isfinite(i_abc.c))
+  if (!isfinite(theta_e) || !isfinite(i_abc.a) || !isfinite(i_abc.b) || !isfinite(i_abc.c))
   {
     motorSetFault(MOTOR_FAULT_ENCODER_INVALID);
     return;
@@ -197,10 +312,9 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
   motor_monitor.iq_meas = i_dq.q;
   motor_monitor.theta_e = theta_e;
 
-  /* The original conditional anti-windup PI implementation is preserved. */
   v_dq.d = piControllerAntiWindup(&pi_id, id_ref, i_dq.d, CUR_DT);
   v_dq.q = piControllerAntiWindup(&pi_iq, iq_ref, i_dq.q, CUR_DT);
-  /* SPWM voltage-vector limit based on measured VBUS, leaving a margin. */
+
   focSetVoltageLimit(&v_dq, 0.45f * motor_vbus);
   motor_monitor.vd_cmd = v_dq.d;
   motor_monitor.vq_cmd = v_dq.q;
@@ -216,8 +330,12 @@ static void motorCurrentLoop(float id_ref, float iq_ref, float theta_e)
 #if (MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED)
 static void motorSpeedLoop(void)
 {
-  if (motor_state != MOTOR_STATE_SPEED_LOOP) return;
-  speed_w_meas = encoderGetMechanicalSpeed();  /* rad/s, motor shaft */
+  if (motor_state != MOTOR_STATE_SPEED_LOOP)
+  {
+    return;
+  }
+  speed_w_meas = encoderGetMechanicalSpeed();
+
   if (!isfinite(speed_w_meas))
   {
     motorSetFault(MOTOR_FAULT_ENCODER_INVALID);
@@ -225,29 +343,37 @@ static void motorSpeedLoop(void)
   }
   motor_monitor.speed_meas = speed_w_meas;
 
-  if (motor_speed_cmd_raw <= SPEED_CMD_DEADBAND_RAW)
-    speed_w_target = 0.0f;
+  float delta = speed_w_target - speed_w_ref;
+  float step;
+
+  if(delta >= 0.0f)
+  {
+    step = SPEED_RAMP_UP * SPD_DT;
+  }
   else
   {
-    float ratio = (float)(motor_speed_cmd_raw - SPEED_CMD_DEADBAND_RAW) /
-                  (float)(4095U - SPEED_CMD_DEADBAND_RAW);
-    speed_w_target = clampFloat(ratio, 0.0f, 1.0f) * OUTPUT_SPD_REF_MAX;
+    step = SPEED_RAMP_DOWN * SPD_DT;
   }
-  float delta = speed_w_target - speed_w_ref;
-  const float step = ((delta >= 0.0f) ? SPEED_RAMP_UP : SPEED_RAMP_DOWN) * SPD_DT;
   delta = clampFloat(delta, -step, step);
   speed_w_ref = clampFloat(speed_w_ref + delta, 0.0f, OUTPUT_SPD_REF_MAX);
   motor_monitor.speed_ref = speed_w_ref;
   current_id_ref = 0.0f;
-  current_iq_ref = piController(&pi_spd, speed_w_ref, speed_w_meas, SPD_DT);
+  current_iq_ref = piControllerAntiWindup(&pi_spd, speed_w_ref, speed_w_meas, SPD_DT);
 }
 #endif
 
 void motorControlUpdate(void)
 {
   if (motor_state != MOTOR_STATE_CURRENT_LOOP &&
-      motor_state != MOTOR_STATE_SPEED_LOOP) return;
-  if (!power_output_armed) return;
+      motor_state != MOTOR_STATE_SPEED_LOOP &&
+      motor_state != MOTOR_STATE_ALIGN)
+  {
+    return;
+  }
+  if (!power_output_armed)
+  {
+    return;
+  }
   if (pwmIsBreakFault() || (TIM1->SR & TIM_SR_BIF))
   {
     motorSetFault(MOTOR_FAULT_BKIN);
@@ -258,21 +384,47 @@ void motorControlUpdate(void)
     motorSetFault(MOTOR_FAULT_INIT_FAIL);
     return;
   }
+
+  if (motor_state == MOTOR_STATE_ALIGN)
+  {
+    motorAlign();
+    return;
+  }
+
+#if _USE_ENCODER
+  if (!encoderIsCalibrated())
+  {
+    motorSetFault(MOTOR_FAULT_ENCODER_INVALID);
+    return;
+  }
+
   const float theta_e = encoderGetElectricalAngle();
+
   if (!isfinite(theta_e))
   {
     motorSetFault(MOTOR_FAULT_ENCODER_INVALID);
     return;
   }
+#endif
+
 #if MOTOR_CONTROL_MODE == MOTOR_CONTROL_SPEED
-  speed_loop_divider++;
-  if (speed_loop_divider >= SPEED_LOOP_DIVIDER)
+  if (motor_state == MOTOR_STATE_SPEED_LOOP)
   {
-    speed_loop_divider = 0U;
-    motorSpeedLoop();
-    if (motor_state == MOTOR_STATE_FAULT) return;
+    speed_loop_divider++;
+    if (speed_loop_divider >= SPEED_LOOP_DIVIDER)
+    {
+      speed_loop_divider = 0U;
+      encoderUpdateSpeed(SPD_DT);
+      motorSpeedLoop();
+
+      if (motor_state == MOTOR_STATE_FAULT)
+      {
+        return;
+      }
+    }
   }
 #endif
+
   motorCurrentLoop(current_id_ref, current_iq_ref, theta_e);
 }
 
@@ -328,10 +480,31 @@ bool motorGetMonitor(motor_monitor_t *monitor)
 
 void motorSetCurrentReference(float id_ref, float iq_ref)
 {
-  if (!isfinite(id_ref) || !isfinite(iq_ref)) return;
+  if (!isfinite(id_ref) || !isfinite(iq_ref))
+  {
+    return;
+  }
+
   current_id_ref = clampFloat(id_ref, OUTPUT_ID_REF_MIN, OUTPUT_ID_REF_MAX);
   current_iq_ref = clampFloat(iq_ref, OUTPUT_IQ_REF_MIN, OUTPUT_IQ_REF_MAX);
 }
 
-motor_state_t motorGetState(void) { return motor_state; }
-motor_fault_t motorGetFault(void) { return motor_fault; }
+void motorSetSpeedReference(float w_ref)
+{
+  if (!isfinite(w_ref))
+  {
+    return;
+  }
+
+  speed_w_target = clampFloat(w_ref, 0.0f, OUTPUT_SPD_REF_MAX);
+}
+
+motor_state_t motorGetState(void)
+{
+  return motor_state;
+}
+
+motor_fault_t motorGetFault(void)
+{
+  return motor_fault;
+}

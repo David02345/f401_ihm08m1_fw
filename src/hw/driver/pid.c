@@ -65,9 +65,8 @@ float piControllerAntiWindup(pid_ctrl_t *pi, float ref, float feedback, float dt
   const float error = ref - feedback;
   const float proportional = pi->kp * error;
   const float old_integral = pi->integral;
-  const float proposed_integral = clampFloat(
-      old_integral + pi->ki * error * dt,
-      pi->integral_min, pi->integral_max);
+  const float proposed_integral = clampFloat((old_integral + pi->ki * error * dt),
+                                             pi->integral_min, pi->integral_max);
   const float proposed_output = proportional + proposed_integral;
 
   if (!((proposed_output > pi->out_max && error > 0.0f) ||

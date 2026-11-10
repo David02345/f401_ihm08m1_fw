@@ -21,7 +21,7 @@
 /** @defgroup Math Utils
   * @{
   */
-#define PI                                3.14159265358979323846
+#define PI                                3.14159265358979323846f
 /**
   * @}
   */
@@ -113,13 +113,15 @@
 /** @defgroup Motor Hardware Specifications
   * @{
   */
-#define GEAR_RATIO                        1
+#define GEAR_RATIO                        1.0f
 #define GEAR_EFFICIENCY                   1.0f
-#define ENC_MAX_COUNT                     4000
-#define COUNT_TO_ANGLE                    2*PI / ENC_MAX_COUNT
+#define COUNT_TO_ANGLE                    2*PI / (float)ENCODER_MAX_COUNT
 #define MOTOR_POLE_PAIRS                  4
 #define MOTOR_PHASE_R                     0.0784f     // Ohm
 #define MOTOR_LQ                          0.00020f    // H
+
+#define ENCODER_MAX_COUNT                 4000U
+#define ENCODER_ELEC_SIGN                 1.0f
 /**
   * @}
   */
@@ -166,7 +168,21 @@
 /** @defgroup Current Loop Define
   * @{
   */
-#define CURRENT_TEST_OC_LIMIT_A       0.80f
+#define CURRENT_TEST_OC_LIMIT_A           1.50f
+/**
+  * @}
+  */
+
+/** @defgroup Alignmentment Define
+  * @{
+  */
+#define ALIGN_ID                          0.30f
+#define ALIGN_THETA                       0.0f
+#define ALIGN_RAMP_TICKS                  6000U
+#define ALIGN_HOLD_TICKS                  14000U
+
+#define ALIGN_SETTLE_TICKS                2000U
+#define ALIGN_SETTLE_MAX_COUNTS           8
 /**
   * @}
   */

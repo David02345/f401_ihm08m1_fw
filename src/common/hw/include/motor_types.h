@@ -14,9 +14,10 @@
 typedef enum
 {
   MOTOR_STATE_IDLE             = 0x00U,
-  MOTOR_STATE_CURRENT_LOOP     = 0x03U,
-  MOTOR_STATE_SPEED_LOOP       = 0x04U,
-  MOTOR_STATE_FAULT            = 0x06U,
+  MOTOR_STATE_ALIGN            = 0x01U,
+  MOTOR_STATE_CURRENT_LOOP     = 0x02U,
+  MOTOR_STATE_SPEED_LOOP       = 0x03U,
+  MOTOR_STATE_FAULT            = 0x04U,
 } motor_state_t;
 
 typedef enum
@@ -26,9 +27,10 @@ typedef enum
   MOTOR_FAULT_ADC_OFFSET_FAIL  = 0x02U,
   MOTOR_FAULT_VBUS_LOW         = 0x03U,
   MOTOR_FAULT_ADC_REGULAR_FAIL = 0x04U,
-  MOTOR_FAULT_BKIN             = 0x07U,
-  MOTOR_FAULT_SW_OVERCURRENT   = 0x08U,
-  MOTOR_FAULT_ENCODER_INVALID  = 0x09U   // Invalid angle / speed; other checks user TODO
+  MOTOR_FAULT_BKIN             = 0x05U,
+  MOTOR_FAULT_SW_OVERCURRENT   = 0x06U,
+  MOTOR_FAULT_ENCODER_INVALID  = 0x07U,
+  MOTOR_FAULT_ALIGN_UNSTABLE   = 0x08U,
 } motor_fault_t;
 
 

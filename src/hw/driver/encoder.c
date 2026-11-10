@@ -15,6 +15,8 @@ static volatile float speed_m = 0.0f;
 static volatile float angle_e = 0.0f;
 static volatile float angle_m = 0.0f;
 static volatile float angle_g = 0.0f;
+static volatile float encoder_offset = 0.0f;
+static volatile bool encoder_offset_valid = false;
 
 TIM_HandleTypeDef htim2;
 
@@ -73,32 +75,39 @@ uint32_t encoderGetCount(void)
   return __HAL_TIM_GET_COUNTER(&htim2);
 }
 
-void encoderUpdateSpeed(void)
+void encoderUpdateSpeed(float dt)
 {
+  if (dt <= 0.0f)
+  {
+    return;
+  }
   int32_t delta;
 
   curr_count = (int32_t)encoderGetCount();
 
   delta = curr_count - prev_count;
 
-  if(delta >= 2000)
+  if(delta > 2000)
   {
     delta -= 4000;
   }
-  else if(delta <= -2000)
+  else if(delta < -2000)
   {
     delta += 4000;
   }
 
   prev_count = curr_count;
 
-  speed_m = (delta * COUNT_TO_ANGLE) / SPD_DT;
+  speed_m = ((float)delta * COUNT_TO_ANGLE) / dt;
   speed_e = speed_m * MOTOR_POLE_PAIRS;
 }
 
 float encoderGetElectricalAngle(void)
 {
-  angle_e = wrapFloat(encoderGetCount() * COUNT_TO_ANGLE * MOTOR_POLE_PAIRS, 0, 2*PI);
+  float angle_e_raw = wrapFloat(ENCODER_ELEC_SIGN * encoderGetCount() * \
+                      COUNT_TO_ANGLE * MOTOR_POLE_PAIRS, 0.0f, 2*PI);
+
+  angle_e = wrapFloat(angle_e_raw + encoder_offset, 0.0f, 2*PI);
 
   return angle_e;
 }
@@ -127,6 +136,39 @@ float encoderGetMechanicalSpeed(void)
   return speed_m;
 }
 
+void encoderClearCalibration(void)
+{
+  encoder_offset = 0.0f;
+  encoder_offset_valid = false;
+}
+
+bool encoderIsCalibrated(void)
+{
+  return encoder_offset_valid;
+}
+
+void encoderResetSpeedTracking(void)
+{
+  int32_t count = (int32_t)encoderGetCount();
+
+  curr_count = count;
+  prev_count = count;
+
+  speed_m = 0.0f;
+  speed_e = 0.0f;
+}
+
+void encoderSetElectricalOffset(float offset)
+{
+  if (!isfinite(offset))
+  {
+    return;
+  }
+
+  encoder_offset = wrapFloat(offset, 0.0f, 2.0f * PI);
+
+  encoder_offset_valid = true;
+}
 
 void HAL_TIM_Encoder_MspInit(TIM_HandleTypeDef* tim_encoderHandle)
 {
