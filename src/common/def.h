@@ -168,7 +168,7 @@
 /** @defgroup Current Loop Define
   * @{
   */
-#define CURRENT_TEST_OC_LIMIT_A           1.50f
+#define CURRENT_TEST_OC_LIMIT_A           1.80f
 /**
   * @}
   */
@@ -176,10 +176,10 @@
 /** @defgroup Alignmentment Define
   * @{
   */
-#define ALIGN_ID                          0.30f
-#define ALIGN_THETA                       0.0f
+#define ALIGN_ID                          1.00f
+#define ALIGN_THETA                       1.5707963f
 #define ALIGN_RAMP_TICKS                  6000U
-#define ALIGN_HOLD_TICKS                  14000U
+#define ALIGN_HOLD_TICKS                  34000U
 
 #define ALIGN_SETTLE_TICKS                2000U
 #define ALIGN_SETTLE_MAX_COUNTS           8

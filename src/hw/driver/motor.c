@@ -27,6 +27,51 @@ static volatile bool power_output_armed = false;
 
 static volatile uint32_t align_count = 0U;
 static int32_t align_start_count = 0;
+/* Sampled only at known PWM control ticks. Accessed from main via IRQ lock. */
+static volatile motor_align_diag_t align_diag;
+
+static void motorCaptureAlignSample(uint32_t index)
+{
+  if (index >= 3U) return;
+  volatile motor_align_diag_sample_t *s = &align_diag.samples[index];
+  s->tick = align_count;
+  s->encoder_count = (int32_t)encoderGetCount();
+  s->theta_e = motor_monitor.theta_e;
+  s->id_ref = motor_monitor.id_ref;
+  s->id_meas = motor_monitor.id_meas;
+  s->iq_meas = motor_monitor.iq_meas;
+  s->vd = motor_monitor.vd_cmd;
+  s->vq = motor_monitor.vq_cmd;
+  s->ia = motor_monitor.ia;
+  s->ib = motor_monitor.ib;
+  s->ic = motor_monitor.ic;
+  s->duty_u = motor_monitor.duty_u;
+  s->duty_v = motor_monitor.duty_v;
+  s->duty_w = motor_monitor.duty_w;
+  s->ccr1 = TIM1->CCR1;
+  s->ccr2 = TIM1->CCR2;
+  s->ccr3 = TIM1->CCR3;
+  s->ccer = TIM1->CCER;
+  s->moe = (uint8_t)((TIM1->BDTR & TIM_BDTR_MOE) != 0U);
+  align_diag.valid_mask |= (1U << index);
+}
+
+bool motorGetAlignDiag(motor_align_diag_t *result)
+{
+  if (result == NULL) return false;
+  const uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+  *result = align_diag;
+  __set_PRIMASK(primask);
+  return true;
+}
+
+volatile uint8_t debug_bkin_stage = 0U;
+volatile uint32_t debug_bkin_sr = 0U;
+volatile uint32_t debug_bkin_bdtr = 0U;
+volatile uint32_t debug_bkin_pa6 = 0U;
+volatile uint32_t bdtr_before;
+volatile uint32_t sr_before;
 
 bool motorInit(void)
 {
@@ -124,6 +169,8 @@ void motorStart(void)
 
   align_count = 0U;
   align_start_count = 0;
+  memset((void *)&align_diag, 0, sizeof(align_diag));
+  align_diag.start_count = (int32_t)encoderGetCount();
 
   encoderClearCalibration();
   encoderResetSpeedTracking();
@@ -145,19 +192,47 @@ void motorStart(void)
   }
   if (pwmIsBreakFault() || (TIM1->SR & TIM_SR_BIF))
   {
+    debug_bkin_stage = 1U;
+    debug_bkin_sr = TIM1->SR;
+    debug_bkin_bdtr = TIM1->BDTR;
+    debug_bkin_pa6 = (GPIOA->IDR >> 6) & 1U;
+
     motorSetFault(MOTOR_FAULT_BKIN);
     return;
   }
 
   motor_state = MOTOR_STATE_ALIGN;
 
-  pwmEnableOutput();
+  bdtr_before = TIM1->BDTR;
+  sr_before = TIM1->SR;
 
+  pwmEnableOutput();
+  /*
   if ((TIM1->BDTR & TIM_BDTR_MOE) == 0U)
   {
+    debug_bkin_stage = 2U;
+    debug_bkin_sr = TIM1->SR;
+    debug_bkin_bdtr = TIM1->BDTR;
+    debug_bkin_pa6 = (GPIOA->IDR >> 6) & 1U;
+
     motorSetFault(MOTOR_FAULT_BKIN);
     return;
   }
+  */
+  uint32_t bdtr_after = TIM1->BDTR;
+  uint32_t sr_after = TIM1->SR;
+
+  debug_bkin_bdtr = bdtr_after;
+  debug_bkin_sr = sr_after;
+  debug_bkin_pa6 = (GPIOA->IDR >> 6) & 1U;
+
+  if ((bdtr_after & TIM_BDTR_MOE) == 0U)
+  {
+    debug_bkin_stage = 2U;
+    motorSetFault(MOTOR_FAULT_BKIN);
+    return;
+  }
+
 
   power_output_armed = true;
 #endif
@@ -200,11 +275,39 @@ void motorAlign(void)
     id_align_ref = ALIGN_ID;
   }
 
-  motorCurrentLoop(id_align_ref, 0.0f, ALIGN_THETA);
+  float theta_align = 0.0f;
 
+  // 0.5초 ~ 1.5초: 자기장 0° → 90° 천천히 이동
+  if (align_count >= 10000U && align_count < 30000U)
+  {
+    theta_align = ALIGN_THETA * ((float)(align_count - 10000U) / 20000.0f);
+  }
+  // 1.5초 이후: 90° 고정
+  else if (align_count >= 30000U)
+  {
+    theta_align = ALIGN_THETA;
+  }
+
+  motorCurrentLoop(id_align_ref, 0.0f, theta_align);
   if (motor_state == MOTOR_STATE_FAULT)
   {
     return;
+  }
+
+  /* Take exactly three snapshots at 0, 45 and 90 electrical degrees.
+   * The 0-deg sample is taken after the Id ramp is complete.
+   * Never print UART from the 20 kHz ADC interrupt. */
+  if (align_count == 9500U)
+  {
+    motorCaptureAlignSample(0U);
+  }
+  else if (align_count == 20000U)
+  {
+    motorCaptureAlignSample(1U);
+  }
+  else if (align_count == 35000U)
+  {
+    motorCaptureAlignSample(2U);
   }
 
   const uint32_t total_ticks = ALIGN_RAMP_TICKS + ALIGN_HOLD_TICKS;
@@ -220,55 +323,22 @@ void motorAlign(void)
     return;
   }
 
-  int32_t end_count = (int32_t)encoderGetCount();
-  int32_t delta = end_count - align_start_count;
-
-  if (delta > (int32_t)(ENCODER_MAX_COUNT / 2U))
-  {
-    delta -= (int32_t)ENCODER_MAX_COUNT;
-  }
-  else if (delta < -(int32_t)(ENCODER_MAX_COUNT / 2U))
-  {
-    delta += (int32_t)ENCODER_MAX_COUNT;
-  }
-
-  if (delta > ALIGN_SETTLE_MAX_COUNTS || delta < -ALIGN_SETTLE_MAX_COUNTS)
-  {
-    motorSetFault(MOTOR_FAULT_ALIGN_UNSTABLE);
-    return;
-  }
-
-  float theta_raw = encoderGetElectricalAngle();
-
-  float offset = ALIGN_THETA - theta_raw;
-
-  encoderSetElectricalOffset(offset);
-
-  if (!encoderIsCalibrated())
-  {
-    motorSetFault(MOTOR_FAULT_ENCODER_INVALID);
-    return;
-  }
-
-  encoderResetSpeedTracking();
-
-  pidReset(&pi_id);
-  pidReset(&pi_iq);
-  pidReset(&pi_spd);
-
-  current_id_ref = 0.0f;
-  current_iq_ref = 0.0f;
-
-  speed_w_target = 0.0f;
-  speed_w_ref = 0.0f;
-  speed_w_meas = 0.0f;
-  speed_loop_divider = 0U;
-
-  motor_state = MOTOR_STATE_CURRENT_LOOP;
+  /* Diagnostic endpoint: do NOT claim rotor alignment merely because the
+   * encoder stopped moving, and do NOT assign a fictitious electrical offset.
+   * Hardware output is disabled here immediately; main loop later stops ADC. */
+  align_diag.end_count = (int32_t)encoderGetCount();
+  power_output_armed = false;
+  pwmDisableOutput();
+  motor_state = MOTOR_STATE_ALIGN_DIAG_DONE;
 }
 
 void motorLowSpeedTask(void)
 {
+  // Keep the first ADC error stage latched after a fault.
+  if (motor_state == MOTOR_STATE_FAULT)
+  {
+    return;
+  }
   if (!adcUpdateRegular())
   {
     motorSetFault(MOTOR_FAULT_ADC_REGULAR_FAIL);

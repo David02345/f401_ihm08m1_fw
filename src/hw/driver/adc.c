@@ -23,7 +23,7 @@ static volatile uint16_t adc_temp_raw  = 0;
 
 static adc_injected_callback_t adc_injected_callback = NULL;
 
-
+volatile uint8_t debug_adc_stage = 0U;
 
 
 bool adcInit(void)
@@ -39,7 +39,7 @@ bool adcInit(void)
   hadc1.Init.ExternalTrigConvEdge  = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.ExternalTrigConv      = ADC_SOFTWARE_START;
   hadc1.Init.DataAlign             = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.NbrOfConversion       = 3;
+  hadc1.Init.NbrOfConversion       = 1;
   hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.EOCSelection          = ADC_EOC_SINGLE_CONV;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -56,22 +56,7 @@ bool adcInit(void)
     Error_Handler();
     ret = false;
   }
-  sConfig.Channel = ADC_CH_SPEED;
-  sConfig.Rank = 2;
-  sConfig.SamplingTime = ADC_SPEED_ST;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-    ret = false;
-  }
-  sConfig.Channel = ADC_CH_TEMP;
-  sConfig.Rank = 3;
-  sConfig.SamplingTime = ADC_TEMP_ST;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-    ret = false;
-  }
+  // Regular group uses one rank; channel selection changes in adcUpdateRegular().
 
 
   sConfigInjected.InjectedNbrOfConversion       = 3;
@@ -198,29 +183,45 @@ void adcGetPhaseCurrent(motor_abc_f_t *curr)
 
 bool adcUpdateRegular(void)
 {
-  if (HAL_ADC_Start(&hadc1) != HAL_OK)
+  // STM32F4 scan + per-rank polling can miss an EOC if the injected ADC
+  // interrupts between consecutive regular conversions. Use one rank per
+  // software trigger, keeping the injected ADC active throughout.
+  const uint32_t channels[3] = { ADC_CH_VBUS, ADC_CH_SPEED, ADC_CH_TEMP };
+  const uint32_t sampling[3] = { ADC_VBUS_ST, ADC_SPEED_ST, ADC_TEMP_ST };
+  uint16_t result[3];
+  ADC_ChannelConfTypeDef config = {0};
+
+  debug_adc_stage = 0U;
+  config.Rank = 1U;
+
+  for (uint32_t i = 0U; i < 3U; i++)
   {
-    return false;
+    config.Channel = channels[i];
+    config.SamplingTime = sampling[i];
+
+    if (HAL_ADC_ConfigChannel(&hadc1, &config) != HAL_OK)
+    {
+      debug_adc_stage = (uint8_t)(1U + i * 3U);  // Configure failed
+      return false;
+    }
+    if (HAL_ADC_Start(&hadc1) != HAL_OK)
+    {
+      debug_adc_stage = (uint8_t)(2U + i * 3U);  // Start failed
+      return false;
+    }
+    if (HAL_ADC_PollForConversion(&hadc1, 10U) != HAL_OK)
+    {
+      debug_adc_stage = (uint8_t)(3U + i * 3U);  // Timeout / Poll error
+      return false;
+    }
+    result[i] = (uint16_t)HAL_ADC_GetValue(&hadc1);
   }
 
-  if (HAL_ADC_PollForConversion(&hadc1, 10) != HAL_OK)
-  {
-    return false;
-  }
-  adc_vbus_raw = HAL_ADC_GetValue(&hadc1);
-
-  if (HAL_ADC_PollForConversion(&hadc1, 10) != HAL_OK)
-  {
-    return false;
-  }
-  adc_speed_raw = HAL_ADC_GetValue(&hadc1);
-
-  if (HAL_ADC_PollForConversion(&hadc1, 10) != HAL_OK)
-  {
-    return false;
-  }
-  adc_temp_raw = HAL_ADC_GetValue(&hadc1);
-
+  // Commit a complete, valid set only. Do NOT call HAL_ADC_Stop() here:
+  // in STM32F4 HAL that stops the injected group as well.
+  adc_vbus_raw = result[0];
+  adc_speed_raw = result[1];
+  adc_temp_raw = result[2];
   return true;
 }
 

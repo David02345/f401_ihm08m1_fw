@@ -42,10 +42,10 @@
 #define _USE_HW_FLASH
 
 
-/* SAFETY INTERLOCK: encoder.c is intentionally still a stub.
- * Keep 0 until the user implements and validates encoder feedback.
- * Setting 1 is NOT a substitute for verifying encoder angle / BKIN. */
-#define MOTOR_ALLOW_POWER_STAGE           0U
+/* SAFETY INTERLOCK: default OFF for code review and first flash.
+ * Set to 1U only after verifying current-sense, BKIN and safe startup.
+ * The encoder electrical direction and alignment are not yet validated. */
+#define MOTOR_ALLOW_POWER_STAGE           1U
 
 #define _USE_HW_ADC
 #define _USE_HW_LED

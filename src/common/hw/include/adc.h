@@ -40,6 +40,10 @@
 
 
 
+extern volatile uint8_t debug_adc_stage;
+
+
+
 typedef void (*adc_injected_callback_t)(void); //             motor.c에서 사용
 void adcSetInjectedCallback(adc_injected_callback_t callback);
 

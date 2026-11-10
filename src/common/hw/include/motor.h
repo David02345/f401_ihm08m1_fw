@@ -13,6 +13,38 @@
 #include "encoder.h"
 #endif
 
+/* 0/45/90 electrical degree current-vector diagnostic. The CCR values are
+ * TIMER REGISTERS, not a physical oscilloscope measurement of the pins.
+ * No offset calibration is performed by this diagnostic build. */
+typedef struct
+{
+  uint32_t tick;
+  int32_t encoder_count;
+  float theta_e;
+  float id_ref, id_meas, iq_meas;
+  float vd, vq;
+  float ia, ib, ic;
+  float duty_u, duty_v, duty_w;
+  uint32_t ccr1, ccr2, ccr3, ccer;
+  uint8_t moe;
+} motor_align_diag_sample_t;
+
+typedef struct
+{
+  uint32_t valid_mask; /* bits 0,1,2 = 0,45,90 deg */
+  int32_t start_count;
+  int32_t end_count;
+  motor_align_diag_sample_t samples[3];
+} motor_align_diag_t;
+
+bool motorGetAlignDiag(motor_align_diag_t *result);
+
+extern volatile uint8_t debug_bkin_stage;
+extern volatile uint32_t debug_bkin_sr;
+extern volatile uint32_t debug_bkin_bdtr;
+extern volatile uint32_t debug_bkin_pa6;
+extern volatile uint32_t bdtr_before;
+extern volatile uint32_t sr_before;
 
 
 bool motorInit(void);
