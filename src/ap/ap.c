@@ -19,6 +19,24 @@ static motor_offset_probe_diag_t completed_offset_diag;
 /* UART selection: 1=-60, 2=-30, 3=0, 4=+30, 5=+60 electrical deg. */
 static uint8_t offset_probe_choice = 2U; /* default 0 deg */
 
+/* Specific ALIGN reason, printed only after PWM is disabled. */
+static const char *apSpeedAlignFailReason(uint8_t mask)
+{
+  if (mask & 1U) return "MAX_EXCURSION";
+  if (mask & 2U) return "MIN_RESPONSE";
+  if (mask & 4U) return "RETURN_RESIDUAL";
+  if (mask & 8U) return "FINAL_SETTLE";
+  if (mask & 16U) return "STATIC_SETTLE";
+  return "NONE";
+}
+
+static const char *apSpeedAlignFailStage(uint8_t stage)
+{
+  static const char * const names[] = {
+      "STATIC", "RAMP", "UP_0_TO_90", "HOLD_90", "BACK_90_TO_0", "SETTLE_0"};
+  return (stage < sizeof(names) / sizeof(names[0])) ? names[stage] : "UNKNOWN";
+}
+
 static int32_t apEncoderDelta(int32_t to, int32_t from)
 {
   int32_t d = to - from;
@@ -280,7 +298,8 @@ void apMain(void)
           static const char * const results[] = {
               "UNFINISHED", "TIME COMPLETE", "ALIGN UNSTABLE",
               "OVERSPEED CUT", "WRONG DIRECTION CUT", "STALL CUT",
-              "TRAVEL CUT", "PRE-START EXCURSION CUT", "STARTUP TIMEOUT"
+              "TRAVEL CUT", "PRE-START EXCURSION CUT", "STARTUP TIMEOUT",
+              "ALIGN VECTOR CHECK FAILED", "RESTART TIMEOUT"
           };
           const uint8_t rc = q->result;
           uartPrintf(_DEF_UART1,
@@ -305,14 +324,55 @@ void apMain(void)
               (rc < sizeof(results)/sizeof(results[0])) ? results[rc] : "UNKNOWN",
               (unsigned int)motorGetFault());
           uartPrintf(_DEF_UART1,
+              "ALIGN_CHECK: pass=%u reason=%s mask=0x%02X stage=%s v_ms=%lu\r\n",
+              (unsigned int)q->align_vector_pass,
+              apSpeedAlignFailReason(q->align_fail_mask),
+              (unsigned int)q->align_fail_mask,
+              apSpeedAlignFailStage(q->align_fail_stage),
+              (unsigned long)(q->align_fail_v_tick / 20U));
+          uartPrintf(_DEF_UART1,
+              "ALIGN_COUNTS: base=%ld plus=%ld plus_valid=%u plus_delta=%+ld\r\n",
+              (long)q->align_base_count, (long)q->align_plus_count,
+              (unsigned int)q->align_plus_valid, (long)q->align_plus_delta);
+          uartPrintf(_DEF_UART1,
+              "ALIGN_COUNTS: end_or_cut=%ld returned=%u residual=%+ld peak=%ld\r\n",
+              (long)q->align_return_count, (unsigned int)q->align_return_valid,
+              (long)q->align_return_delta, (long)q->align_peak_delta);
+          uartPrintf(_DEF_UART1,
+              "ALIGN_SETTLE: static_peak=%ld settle_base=%ld final_delta=%+ld settle_peak=%ld\r\n",
+              (long)q->align_static_settle_peak_counts,
+              (long)q->align_settle_base_count,
+              (long)q->align_settle_final_delta,
+              (long)q->align_settle_peak_counts);
+          uartPrintf(_DEF_UART1,
+              "ALIGN_LIMITS: response_min=%ld excursion_max=%ld residual_max=%ld final_settle_max=%ld\r\n",
+              (long)MOTOR_SPEED_ALIGN_MIN_RESPONSE_COUNTS,
+              (long)MOTOR_SPEED_ALIGN_MAX_EXCURSION_COUNTS,
+              (long)MOTOR_SPEED_ALIGN_MAX_RESIDUAL_COUNTS,
+              (long)MOTOR_SPEED_ALIGN_LAST_SETTLE_COUNTS);
+          if (q->align_fail_mask != 0U)
+            uartPrintf(_DEF_UART1,
+                "ALIGN_FAIL_FLAGS: excursion=%u response=%u residual=%u settle=%u static=%u\r\n",
+                (unsigned int)((q->align_fail_mask & 1U) != 0U),
+                (unsigned int)((q->align_fail_mask & 2U) != 0U),
+                (unsigned int)((q->align_fail_mask & 4U) != 0U),
+                (unsigned int)((q->align_fail_mask & 8U) != 0U),
+                (unsigned int)((q->align_fail_mask & 16U) != 0U));
+          uartPrintf(_DEF_UART1,
               "STARTUP_HANDOFF: startup_end_ms=%lu handoff_end_ms=%lu "
               "start_rpm=%ld start_iq_mA=%ld stop_phase=%u "
-              "(1=STARTUP,2=HANDOFF,3=RUN)\r\n",
+              "(1=STARTUP,2=HANDOFF,3=RUN,4=RESTART)\r\n",
               (unsigned long)(q->startup_end_tick / 20U),
               (unsigned long)(q->handoff_end_tick / 20U),
               (long)q->rpm_at_startup_end,
               (long)(q->iq_at_startup_end * 1000.0f),
               (unsigned int)q->last_phase);
+          uartPrintf(_DEF_UART1,
+              "RESTART_INFO: attempts=%u restart_start_ms=%lu "
+              "restart_recovered_ms=%lu (0=not attempted/recovered)\r\n",
+              (unsigned int)q->restart_count,
+              (unsigned long)(q->restart_start_tick / 20U),
+              (unsigned long)(q->restart_recovered_tick / 20U));
           uartPrintf(_DEF_UART1,
               "t_ms,phase,raw_count,unwrapped_count,rpm_raw,rpm_lpf,rpm_ref,"
               "iq_ref_mA,iq_meas_mA,id_meas_mA,vd_mV,vq_mV,vmag_mV\r\n");

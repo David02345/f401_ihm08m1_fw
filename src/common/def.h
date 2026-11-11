@@ -258,7 +258,7 @@
  * ISR still reads TIM2 for excursion safety and timestamped telemetry.
  * 2s alignment + 1.2s vector test < 5.5s watchdog.
  */
-#define VECTOR_PROBE_ID_A                    3.50f
+#define VECTOR_PROBE_ID_A                     3.50f
 #define VECTOR_PROBE_ANGLE_DEG               90.0f
 #define VECTOR_PROBE_MAX_MOVE_COUNTS         250
 #define VECTOR_PROBE_ID_RAMP_TICKS           2000U   /* 100ms, 2A -> 1.5A */
@@ -272,6 +272,148 @@
 #define VECTOR_T_DOWN_END                    (VECTOR_T_HOLD_END + VECTOR_PROBE_ANGLE_RAMP_TICKS)
 #define VECTOR_T_HOME_END                    (VECTOR_T_DOWN_END + VECTOR_PROBE_HOME_HOLD_TICKS)
 #define VECTOR_T_TOTAL                       (VECTOR_T_HOME_END + VECTOR_PROBE_ID_OFF_TICKS)
+/**
+  * @}
+  */
+
+/** @defgroup FOC Position Diagnostic Buffer
+  * @{
+  */
+#define MOTOR_DIAG_SAMPLE_COUNT 12U
+/**
+  * @}
+  */
+
+/** @defgroup FOC Torque Probe - F/R and T/Y
+  * @{
+  */
+#define MOTOR_HIGH_IQ_PROBE_A               3.50f
+#define MOTOR_HIGH_IQ_PROBE_MAX_MOVE_COUNTS 250
+#define MOTOR_TORQUE_PROBE_SAMPLE_COUNT 8U
+/**
+  * @}
+  */
+
+/** @defgroup FOC Spin Probe - G/H
+  * @{
+  */
+#define MOTOR_SPIN_PROBE_IQ_A               3.50f
+#define MOTOR_SPIN_PROBE_RAMP_TICKS         2000U   /* 100 ms */
+#define MOTOR_SPIN_PROBE_HOLD_TICKS        18000U   /* 900 ms */
+#define MOTOR_SPIN_PROBE_DECAY_TICKS        2000U   /* 100 ms */
+#define MOTOR_SPIN_PROBE_START_TICK         TORQUE_PROBE_START_TICK
+#define MOTOR_SPIN_PROBE_TOTAL_TICKS        (MOTOR_SPIN_PROBE_START_TICK + MOTOR_SPIN_PROBE_RAMP_TICKS + MOTOR_SPIN_PROBE_HOLD_TICKS + MOTOR_SPIN_PROBE_DECAY_TICKS)
+#define MOTOR_SPIN_PROBE_MAX_TRAVEL_COUNTS  ((int32_t)ENCODER_MAX_COUNT) /* 1 motor rev */
+#define MOTOR_SPIN_PROBE_MAX_RPM            1500.0f /* independent 10 ms estimate */
+#define MOTOR_SPIN_PROBE_WRONG_COUNTS       200     /* unexpected direction */
+#define MOTOR_SPIN_PROBE_STALL_TICKS        4000U   /* 200 ms from Iq start */
+#define MOTOR_SPIN_PROBE_STALL_COUNTS       20
+#define MOTOR_SPIN_PROBE_SAMPLE_COUNT      16U
+/**
+  * @}
+  */
+
+/** @defgroup FOC Speed Control - K/L
+  * @{
+  */
+#define MOTOR_SPEED_PI_GOAL_RPM            180.0f
+#define MOTOR_SPEED_PI_RAMP_RPM_PER_S      400.0f
+#define MOTOR_SPEED_PI_KP_A_PER_RPM        0.006f
+#define MOTOR_SPEED_PI_KI_A_PER_RPM_S      0.015f
+#define MOTOR_SPEED_PI_IQ_MAX_A            3.20f
+#define MOTOR_SPEED_PI_OC_MARGIN_A         0.25f
+#define MOTOR_SPEED_PI_V_LIMIT_V           4.50f
+#define MOTOR_SPEED_PI_TICKS_PER_STEP      200U    /* 10 ms at 20 kHz */
+#define MOTOR_SPEED_PI_RUN_TICKS           30000U  /* 1.5 s after Id zero */
+#define MOTOR_SPEED_PI_START_TICK          TORQUE_PROBE_START_TICK
+#define MOTOR_SPEED_PI_MAX_RPM             500.0f
+#define MOTOR_SPEED_PI_MAX_TRAVEL_COUNTS   24000   /* 6 mechanical revolutions */
+#define MOTOR_SPEED_PI_REVERSE_COUNTS      400
+#define MOTOR_SPEED_PI_STALL_TICKS         6000U   /* 300 ms */
+#define MOTOR_SPEED_PI_STALL_COUNTS        20
+#define MOTOR_SPEED_PI_FILTER_ALPHA        0.60f
+#define MOTOR_SPEED_PI_SAMPLE_COUNT        30U
+/**
+  * @}
+  */
+
+/** @defgroup FOC Speed Startup, Handoff and Restart - K/L
+  * @{
+  */
+#define MOTOR_SPEED_STARTUP_IQ_A           3.00f
+#define MOTOR_SPEED_STARTUP_RAMP_TICKS     1600U   /* 80 ms */
+#define MOTOR_SPEED_STARTUP_TIMEOUT_TICKS  3400U   /* 170 ms */
+#define MOTOR_SPEED_START_DETECT_RPM       20.0f
+#define MOTOR_SPEED_START_DETECT_COUNTS    25
+#define MOTOR_SPEED_START_CONFIRM_STEPS    2U      /* 2 successive 10ms readings */
+#define MOTOR_SPEED_HANDOFF_TICKS          2400U   /* 120 ms */
+#define MOTOR_SPEED_HANDOFF_MIN_RPM        40.0f
+#define MOTOR_SPEED_IQ_SLEW_A_PER_S        40.0f
+#define MOTOR_SPEED_INTEGRAL_TRACK_GAIN    0.15f
+#define MOTOR_SPEED_INTEGRAL_LIMIT_A       0.80f
+#define MOTOR_SPEED_RUN_STALL_STEPS        25U     /* 250ms below 5RPM */
+#define MOTOR_SPEED_RESTART_MAX_ATTEMPTS   1U
+#define MOTOR_SPEED_RESTART_RESERVE_TICKS  2000U  /* 100ms buffer */
+#define MOTOR_SPEED_IQ_DECEL_SLEW_A_PER_S  180.0f
+#define MOTOR_SPEED_STARTUP_SOFT_RPM       90.0f
+#define MOTOR_SPEED_STARTUP_STOP_RPM       130.0f
+#define MOTOR_SPEED_HANDOFF_EXIT_IQ_A       0.35f
+/* HANDOFF: use a faster reference ramp only when startup ends below 60RPM.
+ * Latched per handoff, so K startup can catch up while L retains 400RPM/s. */
+#define MOTOR_SPEED_HANDOFF_FAST_THRESHOLD_RPM  60.0f
+#define MOTOR_SPEED_HANDOFF_FAST_RAMP_RPM_PER_S    2000.0f
+/* Handoff must establish real motion before entering RUN. */
+#define MOTOR_SPEED_HANDOFF_RUN_MIN_RPM         30.0f
+#define MOTOR_SPEED_HANDOFF_RUN_CONFIRM_STEPS   3U
+/* After normal handoff dwell, allow one retry for a genuine near-zero stall.
+ * Bound HANDOFF dwell to avoid TIME COMPLETE while stuck in transition. */
+#define MOTOR_SPEED_HANDOFF_STALL_ABS_RPM        5.0f
+#define MOTOR_SPEED_HANDOFF_STALL_STEPS          4U
+#define MOTOR_SPEED_HANDOFF_MAX_TICKS         6000U  /* 300ms */
+/**
+  * @}
+  */
+
+/** @defgroup FOC Speed Alignment Validation - K/L
+  * @{
+  */
+#define MOTOR_SPEED_ALIGN_ID_A           3.50f
+#define MOTOR_SPEED_ALIGN_RAMP_TICKS     2000U  /* 100ms */
+#define MOTOR_SPEED_ALIGN_UP_TICKS       6000U  /* 300ms */
+#define MOTOR_SPEED_ALIGN_HOLD_TICKS     4000U  /* 200ms */
+#define MOTOR_SPEED_ALIGN_BACK_TICKS     6000U  /* 300ms */
+#define MOTOR_SPEED_ALIGN_SETTLE_TICKS   6000U  /* 300ms */
+#define MOTOR_SPEED_ALIGN_TEST_TICKS (MOTOR_SPEED_ALIGN_RAMP_TICKS + \
+  MOTOR_SPEED_ALIGN_UP_TICKS + MOTOR_SPEED_ALIGN_HOLD_TICKS + \
+  MOTOR_SPEED_ALIGN_BACK_TICKS + MOTOR_SPEED_ALIGN_SETTLE_TICKS)
+#define MOTOR_SPEED_ALIGN_MIN_RESPONSE_COUNTS  35
+#define MOTOR_SPEED_ALIGN_MAX_EXCURSION_COUNTS 350
+#define MOTOR_SPEED_ALIGN_MAX_RESIDUAL_COUNTS  35
+#define MOTOR_SPEED_ALIGN_LAST_SETTLE_COUNTS   8
+/**
+  * @}
+  */
+
+/** @defgroup FOC Encoder Offset Diagnostic
+  * @{
+  */
+#define MOTOR_OFFSET_PROBE_SAMPLE_COUNT 10U
+/**
+  * @}
+  */
+
+/** @defgroup FOC Stator Vector Hysteresis Diagnostic
+  * @{
+  */
+#define MOTOR_VECTOR_PROBE_SAMPLE_COUNT 16U
+#define VECTOR_HYST_LOW_ID_A                  2.50f
+#define VECTOR_HYST_ID_DOWN_TICKS             2000U    /* 100ms, high -> 2.5A */
+#define VECTOR_HYST_LOW_HOLD_TICKS            12000U   /* 600ms at +90deg, 2.5A */
+#define VECTOR_HYST_T_ID_DOWN_END             (VECTOR_T_HOLD_END + VECTOR_HYST_ID_DOWN_TICKS)
+#define VECTOR_HYST_T_LOW_HOLD_END            (VECTOR_HYST_T_ID_DOWN_END + VECTOR_HYST_LOW_HOLD_TICKS)
+#define VECTOR_HYST_T_RETURN_END              (VECTOR_HYST_T_LOW_HOLD_END + VECTOR_PROBE_ANGLE_RAMP_TICKS)
+#define VECTOR_HYST_T_HOME_END                (VECTOR_HYST_T_RETURN_END + VECTOR_PROBE_HOME_HOLD_TICKS)
+#define VECTOR_HYST_T_TOTAL                   (VECTOR_HYST_T_HOME_END + VECTOR_PROBE_ID_OFF_TICKS)
 /**
   * @}
   */

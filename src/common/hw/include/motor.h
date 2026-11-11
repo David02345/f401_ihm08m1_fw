@@ -13,9 +13,8 @@
 #include "encoder.h"
 #endif
 
-/* Snapshots for static alignment + signed relative position controller.
- * Captured in the ADC ISR and only printed from the UART main loop. */
-#define MOTOR_DIAG_SAMPLE_COUNT 12U
+/* Diagnostic types and function declarations.
+ * Configuration values are defined in common/def.h. */
 
 typedef struct
 {
@@ -65,17 +64,7 @@ typedef struct
 bool motorGetAlignDiag(motor_align_diag_t *result);
 uint8_t motorGetAlignGateStatus(void);
 
-/* Original F/R test remains 0.30 A / 70-count limit.
- * New T/Y: encoder-angle closed-loop FOC, Iq=+/-3.50 A, 250-count
- * excursion cutoff. The D-axis command is zero after alignment release.
- * PWM and measured current protections are preserved from def.h.
- * The constants below are local to this new diagnostic, not motor ratings.
- */
-#define MOTOR_HIGH_IQ_PROBE_A               3.50f
-#define MOTOR_HIGH_IQ_PROBE_MAX_MOVE_COUNTS 250
-/* Fixed-Iq direction test; use only when the motor state is IDLE.
- * direction: +1 (+Iq), -1 (-Iq), or 0 (normal position-PD S mode). */
-#define MOTOR_TORQUE_PROBE_SAMPLE_COUNT 8U
+/* F/R and T/Y: bounded signed-current direction diagnostics. */
 typedef struct
 {
   uint32_t tick;                /* ticks since end of alignment, at 20kHz */
@@ -107,23 +96,7 @@ bool motorSelectHighIqProbe(int8_t direction); /* T (+3.5A) / Y (-3.5A) */
 int8_t motorGetTorqueProbeDirection(void);
 bool motorGetTorqueProbeDiag(motor_torque_probe_diag_t *result);
 
-/* G/H - one mechanical revolution FOC current-only spin probe.
- * Uses the already tested encoder angle/current PI. No speed PI, PD, or
- * encoderUpdateSpeed() dependency. Limit is UNWRAPPED signed displacement.
- * This is a bounded commissioning test, NOT a motor current rating.
- */
-#define MOTOR_SPIN_PROBE_IQ_A               3.50f
-#define MOTOR_SPIN_PROBE_RAMP_TICKS         2000U   /* 100 ms */
-#define MOTOR_SPIN_PROBE_HOLD_TICKS        18000U   /* 900 ms */
-#define MOTOR_SPIN_PROBE_DECAY_TICKS        2000U   /* 100 ms */
-#define MOTOR_SPIN_PROBE_START_TICK         TORQUE_PROBE_START_TICK
-#define MOTOR_SPIN_PROBE_TOTAL_TICKS        (MOTOR_SPIN_PROBE_START_TICK + MOTOR_SPIN_PROBE_RAMP_TICKS + MOTOR_SPIN_PROBE_HOLD_TICKS + MOTOR_SPIN_PROBE_DECAY_TICKS)
-#define MOTOR_SPIN_PROBE_MAX_TRAVEL_COUNTS  ((int32_t)ENCODER_MAX_COUNT) /* 1 motor rev */
-#define MOTOR_SPIN_PROBE_MAX_RPM            1500.0f /* independent 10 ms estimate */
-#define MOTOR_SPIN_PROBE_WRONG_COUNTS       200     /* unexpected direction */
-#define MOTOR_SPIN_PROBE_STALL_TICKS        4000U   /* 200 ms from Iq start */
-#define MOTOR_SPIN_PROBE_STALL_COUNTS       20
-#define MOTOR_SPIN_PROBE_SAMPLE_COUNT      16U
+/* G/H: one-revolution current-only spin probe. */
 
 typedef struct
 {
@@ -152,85 +125,22 @@ bool motorSelectSpinProbe(int8_t direction); /* G: +Iq, H: -Iq */
 bool motorIsSpinProbeSelected(void);
 bool motorGetSpinProbeDiag(motor_spin_probe_diag_t *result);
 
-/* K/L: bounded encoder FOC + speed PI trial, independent of MOTOR_CONTROL_MODE.
- * +Iq moves raw encoder count negative: signed +RPM means +Iq direction.
- * Speed measurement/PI update at 100Hz, current FOC at 20kHz.
- * New speed mode alone gets expanded current-PI voltage headroom;
- * alignment and older T/Y/G/H/V probes retain the 1.8V diagnostic cap.
- * These gains/limits are COMMISSIONING defaults, not a motor rating.
+/* K/L: startup, handoff, speed PI and bounded restart diagnostics.
+ * Gains, timing, current limits and alignment criteria: common/def.h.
  */
-/* K/L speed commissioning settings. These affect ONLY K/L, not old probes.
- * Current is limited by min(IQ_MAX, CURRENT_TEST_OC_LIMIT_A-OC_MARGIN).
- * 3.0A is an initial STARTUP target based on prior successful T/Y/G/H logs,
- * not a motor current rating. Do not remove board/firmware protection. */
-#define MOTOR_SPEED_PI_GOAL_RPM            180.0f
-#define MOTOR_SPEED_PI_RAMP_RPM_PER_S      400.0f
-#define MOTOR_SPEED_PI_KP_A_PER_RPM        0.006f
-#define MOTOR_SPEED_PI_KI_A_PER_RPM_S      0.015f
-#define MOTOR_SPEED_PI_IQ_MAX_A            3.20f
-#define MOTOR_SPEED_PI_OC_MARGIN_A         0.25f
-#define MOTOR_SPEED_PI_V_LIMIT_V           4.50f
-#define MOTOR_SPEED_PI_TICKS_PER_STEP      200U    /* 10 ms at 20 kHz */
-#define MOTOR_SPEED_PI_RUN_TICKS           30000U  /* 1.5 s after Id zero */
-#define MOTOR_SPEED_PI_START_TICK          TORQUE_PROBE_START_TICK
-#define MOTOR_SPEED_PI_MAX_RPM             500.0f
-#define MOTOR_SPEED_PI_MAX_TRAVEL_COUNTS   24000   /* 6 mechanical revolutions */
-#define MOTOR_SPEED_PI_REVERSE_COUNTS      400
-#define MOTOR_SPEED_PI_STALL_TICKS         6000U   /* 300 ms */
-#define MOTOR_SPEED_PI_STALL_COUNTS        20
-#define MOTOR_SPEED_PI_FILTER_ALPHA        0.60f
-#define MOTOR_SPEED_PI_SAMPLE_COUNT        30U
-
-/* Three-stage startup -> bumpless handoff -> low-gain speed PI. */
-#define MOTOR_SPEED_STARTUP_IQ_A           3.00f
-#define MOTOR_SPEED_STARTUP_RAMP_TICKS     1600U   /* 80 ms */
-#define MOTOR_SPEED_STARTUP_TIMEOUT_TICKS  3400U   /* 170 ms */
-#define MOTOR_SPEED_START_DETECT_RPM       20.0f
-#define MOTOR_SPEED_START_DETECT_COUNTS    25
-#define MOTOR_SPEED_START_CONFIRM_STEPS    2U      /* 2 successive 10ms readings */
-#define MOTOR_SPEED_HANDOFF_TICKS          2400U   /* 120 ms */
-#define MOTOR_SPEED_HANDOFF_MIN_RPM        40.0f
-#define MOTOR_SPEED_IQ_SLEW_A_PER_S        40.0f
-#define MOTOR_SPEED_INTEGRAL_TRACK_GAIN    0.15f
-#define MOTOR_SPEED_INTEGRAL_LIMIT_A       0.80f
-#define MOTOR_SPEED_RUN_STALL_STEPS        25U     /* 250ms below 5RPM */
-
-/* K/L ONLY: active 0 -> +90 -> 0 stator-vector alignment validation.
-   This detects a non-reproducible/immobile rotor; it does not prove an
-   absolute flux-axis offset. 20kHz timer ticks. */
-#define MOTOR_SPEED_ALIGN_ID_A           3.50f
-#define MOTOR_SPEED_ALIGN_RAMP_TICKS     2000U  /* 100ms */
-#define MOTOR_SPEED_ALIGN_UP_TICKS       6000U  /* 300ms */
-#define MOTOR_SPEED_ALIGN_HOLD_TICKS     4000U  /* 200ms */
-#define MOTOR_SPEED_ALIGN_BACK_TICKS     6000U  /* 300ms */
-#define MOTOR_SPEED_ALIGN_SETTLE_TICKS   6000U  /* 300ms */
-#define MOTOR_SPEED_ALIGN_TEST_TICKS (MOTOR_SPEED_ALIGN_RAMP_TICKS + \
-  MOTOR_SPEED_ALIGN_UP_TICKS + MOTOR_SPEED_ALIGN_HOLD_TICKS + \
-  MOTOR_SPEED_ALIGN_BACK_TICKS + MOTOR_SPEED_ALIGN_SETTLE_TICKS)
-#define MOTOR_SPEED_ALIGN_MIN_RESPONSE_COUNTS  35
-#define MOTOR_SPEED_ALIGN_MAX_EXCURSION_COUNTS 350
-#define MOTOR_SPEED_ALIGN_MAX_RESIDUAL_COUNTS  35
-#define MOTOR_SPEED_ALIGN_LAST_SETTLE_COUNTS   8
-/* Accelerating is limited; removing accelerating current when target speed
-   is reached is allowed to be faster. Does not force reverse torque. */
-#define MOTOR_SPEED_IQ_DECEL_SLEW_A_PER_S  180.0f
-#define MOTOR_SPEED_STARTUP_SOFT_RPM       90.0f
-#define MOTOR_SPEED_STARTUP_STOP_RPM       130.0f
-#define MOTOR_SPEED_HANDOFF_EXIT_IQ_A       0.35f
-
-
 typedef enum
 {
   MOTOR_SPEED_PHASE_NONE = 0U,
   MOTOR_SPEED_PHASE_STARTUP = 1U,
   MOTOR_SPEED_PHASE_HANDOFF = 2U,
-  MOTOR_SPEED_PHASE_RUN = 3U
+  MOTOR_SPEED_PHASE_RUN = 3U,
+  MOTOR_SPEED_PHASE_RESTART = 4U
 } motor_speed_phase_t;
 
 typedef struct
 {
   uint32_t tick;
-  uint8_t phase; /* STARTUP=1, HANDOFF=2, RUN=3 */
+  uint8_t phase; /* STARTUP=1, HANDOFF=2, RUN=3, RESTART=4 */
   int32_t raw_count, unwrapped_count;
   float rpm_raw, rpm_filtered, rpm_ref, iq_ref, iq_meas;
   float id_meas, vd, vq, vmag;
@@ -240,14 +150,27 @@ typedef struct
 {
   uint8_t selected;
   int8_t direction;
-  uint8_t result; /* 1=time,2=align,3=overspeed,4=reverse,5=stall,6=travel,7=prestart,8=startup timeout,9=align vector check */
+  uint8_t result; /* 1=time,2=align,3=overspeed,4=reverse,5=stall,6=travel,7=prestart,8=startup timeout,9=align check,10=restart timeout */
   uint8_t sample_count;
   uint8_t last_phase;
   int32_t align_count, zero_count, stop_raw, total_counts;
   uint32_t startup_end_tick, handoff_end_tick;
+  uint8_t restart_count;
+  uint32_t restart_start_tick, restart_recovered_tick;
   int32_t align_base_count, align_plus_count, align_return_count;
   int32_t align_plus_delta, align_return_delta, align_peak_delta;
   uint8_t align_vector_pass;
+  /* Diagnostic only; no effect on control. Masks: 1=PEAK, 2=RESPONSE,
+     4=RETURN_RESIDUAL, 8=FINAL_SETTLE, 16=STATIC_SETTLE. */
+  uint8_t align_fail_mask;
+  uint8_t align_fail_stage; /* 0=STATIC,1=RAMP,2=UP,3=HOLD,4=BACK,5=SETTLE */
+  uint8_t align_plus_valid;
+  uint8_t align_return_valid; /* 0 on an early cutoff: return_count is stop-count */
+  uint32_t align_fail_v_tick; /* ticks since end of original 2s static align */
+  int32_t align_settle_base_count;
+  int32_t align_settle_final_delta;
+  int32_t align_settle_peak_counts;
+  int32_t align_static_settle_peak_counts;
   float rpm_at_startup_end, iq_at_startup_end;
   int32_t maximum_forward_counts;
   uint32_t stop_tick, voltage_saturation_ticks;
@@ -259,13 +182,7 @@ bool motorSelectSpeedPiProbe(int8_t direction);  /* K=+180RPM, L=-180RPM */
 bool motorIsSpeedPiProbeSelected(void);
 bool motorGetSpeedPiProbeDiag(motor_speed_pi_diag_t *out);
 
-/* Encoder electrical-angle OFFSET diagnostic, independent run per keypress.
- * UART: select 1..5 (-60/-30/0/+30/+60 deg), P=+Iq, N=-Iq.
- * The extra offset is applied only after Id has reached zero, then held
- * through the 150 ms zero-current settling period and bounded Iq pulse.
- * Position controller is bypassed; base alignment offset is not rewritten.
- */
-#define MOTOR_OFFSET_PROBE_SAMPLE_COUNT 10U
+/* Encoder electrical-angle OFFSET diagnostic (P/N, 1..5). */
 typedef struct
 {
   uint32_t tick;              /* 20 kHz ticks since alignment end */
@@ -295,12 +212,7 @@ bool motorSelectOffsetProbe(int8_t direction, uint8_t offset_index);
 bool motorIsOffsetProbeSelected(void);
 bool motorGetOffsetProbeDiag(motor_offset_probe_diag_t *result);
 
-/* V command: +90 degree stator-current-vector HYSTERESIS diagnostic.
- * Hold 3.5A at +90deg, reduce to 2.5A at the SAME commanded angle,
- * hold again, then return to zero. Encoder is telemetry/safety ONLY.
- * Samples are copied only after PWM is disabled.
- */
-#define MOTOR_VECTOR_PROBE_SAMPLE_COUNT 16U
+/* V: stator-current-vector hysteresis diagnostic. */
 typedef struct
 {
   uint32_t tick;                  /* ticks after alignment (20kHz) */

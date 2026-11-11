@@ -82,6 +82,13 @@ static motor_speed_phase_t speed_probe_phase = MOTOR_SPEED_PHASE_NONE;
 static uint32_t speed_probe_phase_start_tick = 0U;
 static uint8_t speed_probe_start_confirm = 0U;
 static uint8_t speed_probe_run_stall_steps = 0U;
+static uint8_t speed_probe_handoff_run_confirm = 0U;
+static uint8_t speed_probe_handoff_stall_steps = 0U;
+static bool speed_probe_handoff_fast_ramp = false;
+/* K/L: one bounded retry after a genuine RUN stall, never in a loop. */
+static uint8_t speed_probe_restart_count = 0U;
+static int32_t speed_probe_start_forward_count = 0;
+static float speed_probe_start_current_a = 0.0f;
 
 static volatile bool vector_probe_selected = false;
 static volatile motor_vector_probe_diag_t vector_diag;
@@ -545,6 +552,9 @@ void motorStart(void)
   speed_pi_diag.iq_limit_used = speed_probe_iq_limit;
   speed_probe_phase = MOTOR_SPEED_PHASE_NONE;
   speed_probe_phase_start_tick = 0U;
+  speed_probe_restart_count = 0U;
+  speed_probe_start_forward_count = 0;
+  speed_probe_start_current_a = 0.0f;
   speed_probe_start_confirm = 0U;
   speed_probe_run_stall_steps = 0U;
   memset((void *)&vector_diag, 0, sizeof(vector_diag));
@@ -699,7 +709,13 @@ void motorAlign(void)
     if (ad > MOTOR_SPEED_ALIGN_MAX_EXCURSION_COUNTS)
     {
       speed_pi_diag.result = 9U;
-      speed_pi_diag.align_return_count = pos;
+      speed_pi_diag.align_fail_mask = 1U; /* peak excursion */
+      speed_pi_diag.align_fail_stage = (v < v1) ? 1U :
+          ((v < v2) ? 2U : ((v < v3) ? 3U : ((v < v4) ? 4U : 5U)));
+      speed_pi_diag.align_fail_v_tick = v;
+      speed_pi_diag.align_count = pos;
+      speed_pi_diag.stop_raw = pos;
+      speed_pi_diag.align_return_count = pos; /* early STOP, not a completed return */
       speed_pi_diag.align_return_delta = delta;
       power_output_armed = false;
       pwmDisableOutput();
@@ -710,22 +726,43 @@ void motorAlign(void)
     {
       speed_pi_diag.align_plus_count = pos;
       speed_pi_diag.align_plus_delta = delta;
+      speed_pi_diag.align_plus_valid = 1U;
     }
-    if (v == v4) align_settle_reference_count = pos;
+    if (v == v4)
+    {
+      align_settle_reference_count = pos;
+      speed_pi_diag.align_settle_base_count = pos;
+    }
     if (v >= v4)
     {
       const int32_t settle = motorAbsCount(motorCountDelta(pos, align_settle_reference_count));
       if (settle > align_settle_peak) align_settle_peak = settle;
+      if (settle > speed_pi_diag.align_settle_peak_counts)
+        speed_pi_diag.align_settle_peak_counts = settle;
     }
     align_count++;
     if (v + 1U < vend) return;
     speed_pi_diag.align_return_count = pos;
     speed_pi_diag.align_return_delta = delta;
-    if (motorAbsCount(speed_pi_diag.align_plus_delta) < MOTOR_SPEED_ALIGN_MIN_RESPONSE_COUNTS ||
-        motorAbsCount(delta) > MOTOR_SPEED_ALIGN_MAX_RESIDUAL_COUNTS ||
-        motorAbsCount(motorCountDelta(pos, align_settle_reference_count)) > MOTOR_SPEED_ALIGN_LAST_SETTLE_COUNTS)
+    speed_pi_diag.align_return_valid = 1U;
+    speed_pi_diag.align_settle_final_delta =
+        motorCountDelta(pos, align_settle_reference_count);
+    uint8_t align_fail_mask = 0U;
+    if (!speed_pi_diag.align_plus_valid ||
+        motorAbsCount(speed_pi_diag.align_plus_delta) < MOTOR_SPEED_ALIGN_MIN_RESPONSE_COUNTS)
+      align_fail_mask |= 2U;
+    if (motorAbsCount(delta) > MOTOR_SPEED_ALIGN_MAX_RESIDUAL_COUNTS)
+      align_fail_mask |= 4U;
+    if (motorAbsCount(speed_pi_diag.align_settle_final_delta) > MOTOR_SPEED_ALIGN_LAST_SETTLE_COUNTS)
+      align_fail_mask |= 8U;
+    if (align_fail_mask != 0U)
     {
       speed_pi_diag.result = 9U;
+      speed_pi_diag.align_fail_mask = align_fail_mask;
+      speed_pi_diag.align_fail_stage = 5U;
+      speed_pi_diag.align_fail_v_tick = v;
+      speed_pi_diag.align_count = pos;
+      speed_pi_diag.stop_raw = pos;
       power_output_armed = false;
       pwmDisableOutput();
       motor_state = MOTOR_STATE_ALIGN_DIAG_DONE;
@@ -767,11 +804,16 @@ void motorAlign(void)
   {
     speed_pi_diag.align_base_count = (int32_t)encoderGetCount();
     speed_pi_diag.align_peak_delta = 0;
+    speed_pi_diag.align_static_settle_peak_counts = align_settle_peak;
     /* Preserve the original 2s settle gate before applying 3.5A. */
     if (align_settle_peak > ALIGN_SETTLE_MAX_COUNTS)
     {
       speed_pi_diag.result = 2U;
+      speed_pi_diag.align_fail_mask = 16U;
+      speed_pi_diag.align_fail_stage = 0U;
+      speed_pi_diag.align_fail_v_tick = 0U;
       speed_pi_diag.align_count = speed_pi_diag.align_base_count;
+      speed_pi_diag.stop_raw = speed_pi_diag.align_base_count;
       power_output_armed = false;
       pwmDisableOutput();
       motor_state = MOTOR_STATE_ALIGN_DIAG_DONE;
@@ -1235,8 +1277,14 @@ static void motorCommissionSpeedPiProbe(void)
     speed_probe_target_rpm = 0.0f;
     speed_probe_phase = MOTOR_SPEED_PHASE_STARTUP;
     speed_probe_phase_start_tick = 0U;
+    speed_probe_restart_count = 0U;
+    speed_probe_start_forward_count = 0;
+    speed_probe_start_current_a = 0.0f;
     speed_probe_start_confirm = 0U;
     speed_probe_run_stall_steps = 0U;
+    speed_probe_handoff_run_confirm = 0U;
+    speed_probe_handoff_stall_steps = 0U;
+    speed_probe_handoff_fast_ramp = false;
     current_iq_ref = 0.0f;
     encoderResetSpeedTracking();
 
@@ -1289,28 +1337,18 @@ static void motorCommissionSpeedPiProbe(void)
     const float iq_step = MOTOR_SPEED_IQ_SLEW_A_PER_S * 0.010f;
     const float goal = (float)speed_probe_direction * MOTOR_SPEED_PI_GOAL_RPM;
 
-    if (speed_probe_phase == MOTOR_SPEED_PHASE_STARTUP)
+    /* Crucial: detect successful startup BEFORE applying the current command
+       for this 10ms step. The old code first drove +3A at K's 80ms transition
+       and only then set HANDOFF; L happened to be already softened. */
+    if (speed_probe_phase == MOTOR_SPEED_PHASE_STARTUP ||
+        speed_probe_phase == MOTOR_SPEED_PHASE_RESTART)
     {
-      const float startup_iq = fminf(MOTOR_SPEED_STARTUP_IQ_A, speed_probe_iq_limit);
-      const float ramp = clampFloat((float)u / (float)MOTOR_SPEED_STARTUP_RAMP_TICKS,
-                                    0.0f, 1.0f);
-      const float measured_along = (float)speed_probe_direction * speed_probe_raw_rpm;
-      float desired = (float)speed_probe_direction * startup_iq * ramp;
-      /* Avoid holding +3A into a rapidly accelerating rotor. Do not
-         apply negative torque in startup. */
-      if (measured_along >= MOTOR_SPEED_STARTUP_STOP_RPM) desired = 0.0f;
-      else if (measured_along > MOTOR_SPEED_STARTUP_SOFT_RPM)
-        desired *= (MOTOR_SPEED_STARTUP_STOP_RPM-measured_along) /
-                   (MOTOR_SPEED_STARTUP_STOP_RPM-MOTOR_SPEED_STARTUP_SOFT_RPM);
-      const float startup_step = ((float)speed_probe_direction * desired <
-          (float)speed_probe_direction * current_iq_ref) ?
-          MOTOR_SPEED_IQ_DECEL_SLEW_A_PER_S * 0.010f : iq_step;
-      current_iq_ref += clampFloat(desired - current_iq_ref,
-                                  -startup_step, startup_step);
+      const uint32_t elapsed = u - speed_probe_phase_start_tick;
+      const int32_t forward_from_start = forward - speed_probe_start_forward_count;
+      const float rpm_along = (float)speed_probe_direction * speed_probe_raw_rpm;
 
-      /* Require both physical displacement and two signed 10ms speed reads. */
-      if (forward >= MOTOR_SPEED_START_DETECT_COUNTS &&
-          (float)speed_probe_direction * speed_probe_raw_rpm >= MOTOR_SPEED_START_DETECT_RPM)
+      if (forward_from_start >= MOTOR_SPEED_START_DETECT_COUNTS &&
+          rpm_along >= MOTOR_SPEED_START_DETECT_RPM)
       {
         if (speed_probe_start_confirm < MOTOR_SPEED_START_CONFIRM_STEPS)
           speed_probe_start_confirm++;
@@ -1318,43 +1356,83 @@ static void motorCommissionSpeedPiProbe(void)
       else
         speed_probe_start_confirm = 0U;
 
-      /* A large, correctly signed displacement with meaningful speed is
-         already decisive; do not keep boosting solely to get 2 samples. */
       const bool decisive_start =
-          (forward >= 100 &&
+          (forward_from_start >= 100 &&
            (float)speed_probe_direction * speed_probe_filtered_rpm >= 60.0f);
       if (speed_probe_start_confirm >= MOTOR_SPEED_START_CONFIRM_STEPS ||
           decisive_start)
       {
+        const bool was_restart =
+            speed_probe_phase == MOTOR_SPEED_PHASE_RESTART;
         speed_probe_phase = MOTOR_SPEED_PHASE_HANDOFF;
         speed_probe_phase_start_tick = u;
-        speed_pi_diag.startup_end_tick = u;
+        if (was_restart)
+          speed_pi_diag.restart_recovered_tick = u;
+        else
+          speed_pi_diag.startup_end_tick = u;
         speed_pi_diag.rpm_at_startup_end = speed_probe_filtered_rpm;
-        speed_pi_diag.iq_at_startup_end = current_iq_ref;
+        speed_probe_handoff_fast_ramp =
+            ((float)speed_probe_direction * speed_probe_filtered_rpm <
+             MOTOR_SPEED_HANDOFF_FAST_THRESHOLD_RPM);
+        speed_probe_handoff_run_confirm = 0U;
+        speed_probe_handoff_stall_steps = 0U;
 
-        /* Initial target tracks the speed already reached, within goal. */
+        /* Track the already attained speed, while respecting the goal. */
         const float speed_abs = clampFloat(
             (float)speed_probe_direction * speed_probe_filtered_rpm,
             MOTOR_SPEED_HANDOFF_MIN_RPM, MOTOR_SPEED_PI_GOAL_RPM);
         speed_probe_target_rpm = (float)speed_probe_direction * speed_abs;
         pidReset(&pi_spd);
-        /* Bumpless PI initialization, with a bounded integral estimate.
-           A separate Iq slew limit ensures NO step at the phase change. */
         const float e = speed_probe_target_rpm - speed_probe_filtered_rpm;
         pi_spd.integral = clampFloat(current_iq_ref - pi_spd.kp * e,
-                                      pi_spd.integral_min, pi_spd.integral_max);
+                                     pi_spd.integral_min, pi_spd.integral_max);
+        /* Fall through to HANDOFF control on THIS update: do not send
+           another startup-current step after detecting actual rotation. */
       }
-      else if (u >= MOTOR_SPEED_STARTUP_TIMEOUT_TICKS)
+      else if (elapsed >= MOTOR_SPEED_STARTUP_TIMEOUT_TICKS)
       {
-        motorFinishSpeedPiProbe(8U, t, raw); /* no sustained start */
+        motorFinishSpeedPiProbe(
+            speed_probe_phase == MOTOR_SPEED_PHASE_RESTART ? 10U : 8U,
+            t, raw);
         return;
       }
+      else
+      {
+        const float startup_iq = fminf(MOTOR_SPEED_STARTUP_IQ_A,
+                                         speed_probe_iq_limit);
+        const float ramp = clampFloat(
+            (float)elapsed / (float)MOTOR_SPEED_STARTUP_RAMP_TICKS,
+            0.0f, 1.0f);
+        /* During retry, keep the already applied positive drive current
+           continuous. A fresh first start always ramps from zero. */
+        const float ramp_a = speed_probe_start_current_a +
+            (startup_iq - speed_probe_start_current_a) * ramp;
+        float desired = (float)speed_probe_direction * ramp_a;
+        if (rpm_along >= MOTOR_SPEED_STARTUP_STOP_RPM) desired = 0.0f;
+        else if (rpm_along > MOTOR_SPEED_STARTUP_SOFT_RPM)
+          desired *= (MOTOR_SPEED_STARTUP_STOP_RPM - rpm_along) /
+                     (MOTOR_SPEED_STARTUP_STOP_RPM - MOTOR_SPEED_STARTUP_SOFT_RPM);
+        const float step = ((float)speed_probe_direction * desired <
+            (float)speed_probe_direction * current_iq_ref) ?
+            MOTOR_SPEED_IQ_DECEL_SLEW_A_PER_S * 0.010f : iq_step;
+        current_iq_ref += clampFloat(desired - current_iq_ref,
+                                     -step, step);
+      }
     }
-    else /* HANDOFF or RUN: speed PI is separate from the startup torque. */
+
+    if (speed_probe_phase == MOTOR_SPEED_PHASE_HANDOFF ||
+        speed_probe_phase == MOTOR_SPEED_PHASE_RUN)
     {
-      const float increment = MOTOR_SPEED_PI_RAMP_RPM_PER_S * 0.010f;
+      /* L: retain legacy 400RPM/s; K's low-speed handoff uses the
+       * faster profile latched when STARTUP was confirmed. */
+      const float ramp_rpm_s =
+          (speed_probe_phase == MOTOR_SPEED_PHASE_HANDOFF &&
+           speed_probe_handoff_fast_ramp) ?
+          MOTOR_SPEED_HANDOFF_FAST_RAMP_RPM_PER_S :
+          MOTOR_SPEED_PI_RAMP_RPM_PER_S;
+      const float increment = ramp_rpm_s * 0.010f;
       speed_probe_target_rpm += clampFloat(goal - speed_probe_target_rpm,
-                                            -increment, increment);
+                                           -increment, increment);
       const float pi_request = piControllerAntiWindup(&pi_spd,
           speed_probe_target_rpm, speed_probe_filtered_rpm, 0.010f);
       const float bounded_request = clampFloat(pi_request,
@@ -1366,18 +1444,71 @@ static void motorCommissionSpeedPiProbe(void)
           MOTOR_SPEED_IQ_DECEL_SLEW_A_PER_S * 0.010f : iq_step;
       current_iq_ref += clampFloat(bounded_request - current_iq_ref,
                                    -step, step);
-      /* Correct integral for a current command not yet reached due to slew. */
+      /* Prevent PI integrator from winding up against slew limits. */
       pi_spd.integral = clampFloat(
           pi_spd.integral + MOTOR_SPEED_INTEGRAL_TRACK_GAIN *
           (current_iq_ref - bounded_request),
           pi_spd.integral_min, pi_spd.integral_max);
 
-      if (speed_probe_phase == MOTOR_SPEED_PHASE_HANDOFF &&
-          (u - speed_probe_phase_start_tick) >= MOTOR_SPEED_HANDOFF_TICKS &&
-          fabsf(bounded_request - current_iq_ref) <= MOTOR_SPEED_HANDOFF_EXIT_IQ_A)
+      /* Record the current actually commanded on the first HANDOFF tick. */
+      if (speed_probe_restart_count == 0U &&
+          speed_probe_phase == MOTOR_SPEED_PHASE_HANDOFF &&
+          speed_pi_diag.startup_end_tick == u)
+        speed_pi_diag.iq_at_startup_end = current_iq_ref;
+
+      bool restart_requested = false;
+      if (speed_probe_phase == MOTOR_SPEED_PHASE_HANDOFF)
       {
-        speed_probe_phase = MOTOR_SPEED_PHASE_RUN;
-        speed_pi_diag.handoff_end_tick = u;
+        const uint32_t handoff_elapsed = u - speed_probe_phase_start_tick;
+        const float rpm_along = (float)speed_probe_direction *
+                                speed_probe_filtered_rpm;
+
+        /* Require 3 consecutive speed samples in the commanded direction.
+         * A current-only handoff must not transition into RUN at 0RPM. */
+        if (rpm_along >= MOTOR_SPEED_HANDOFF_RUN_MIN_RPM)
+        {
+          if (speed_probe_handoff_run_confirm <
+              MOTOR_SPEED_HANDOFF_RUN_CONFIRM_STEPS)
+            speed_probe_handoff_run_confirm++;
+        }
+        else
+          speed_probe_handoff_run_confirm = 0U;
+
+        /* A slow/motionless HANDOFF needs the SAME bounded retry as RUN.
+         * Only consider actual near-zero speed (not reverse rotation). */
+        if (handoff_elapsed >= MOTOR_SPEED_HANDOFF_TICKS &&
+            fabsf(speed_probe_filtered_rpm) <
+                MOTOR_SPEED_HANDOFF_STALL_ABS_RPM)
+        {
+          if (speed_probe_handoff_stall_steps <
+              MOTOR_SPEED_HANDOFF_STALL_STEPS)
+            speed_probe_handoff_stall_steps++;
+        }
+        else
+          speed_probe_handoff_stall_steps = 0U;
+
+        if (handoff_elapsed >= MOTOR_SPEED_HANDOFF_TICKS &&
+            speed_probe_handoff_run_confirm >=
+                MOTOR_SPEED_HANDOFF_RUN_CONFIRM_STEPS &&
+            fabsf(bounded_request - current_iq_ref) <=
+                MOTOR_SPEED_HANDOFF_EXIT_IQ_A)
+        {
+          speed_probe_phase = MOTOR_SPEED_PHASE_RUN;
+          speed_pi_diag.handoff_end_tick = u;
+          speed_probe_run_stall_steps = 0U;
+        }
+        else if (speed_probe_handoff_stall_steps >=
+                     MOTOR_SPEED_HANDOFF_STALL_STEPS)
+        {
+          restart_requested = true;
+        }
+        else if (handoff_elapsed >= MOTOR_SPEED_HANDOFF_MAX_TICKS)
+        {
+          /* No stable RUN transition: stop rather than re-boost a rotor
+           * that may still be moving. A retry is only for near-zero stall. */
+          motorFinishSpeedPiProbe(5U, t, raw);
+          return;
+        }
       }
 
       if (speed_probe_phase == MOTOR_SPEED_PHASE_RUN)
@@ -1390,6 +1521,36 @@ static void motorCommissionSpeedPiProbe(void)
         else
           speed_probe_run_stall_steps = 0U;
         if (speed_probe_run_stall_steps >= MOTOR_SPEED_RUN_STALL_STEPS)
+          restart_requested = true;
+      }
+
+      if (restart_requested)
+      {
+        /* One retry at most, regardless of whether HANDOFF or RUN stalls.
+         * Keep all existing current, speed and travel limits unchanged. */
+        const uint32_t reserve = MOTOR_SPEED_STARTUP_TIMEOUT_TICKS +
+            MOTOR_SPEED_HANDOFF_TICKS + MOTOR_SPEED_RESTART_RESERVE_TICKS;
+        if (speed_probe_restart_count < MOTOR_SPEED_RESTART_MAX_ATTEMPTS &&
+            u < MOTOR_SPEED_PI_RUN_TICKS &&
+            MOTOR_SPEED_PI_RUN_TICKS - u >= reserve)
+        {
+          speed_probe_restart_count++;
+          speed_pi_diag.restart_count = speed_probe_restart_count;
+          speed_pi_diag.restart_start_tick = u;
+          speed_probe_phase = MOTOR_SPEED_PHASE_RESTART;
+          speed_probe_phase_start_tick = u;
+          speed_probe_start_forward_count = forward;
+          speed_probe_start_confirm = 0U;
+          speed_probe_run_stall_steps = 0U;
+          speed_probe_handoff_run_confirm = 0U;
+          speed_probe_handoff_stall_steps = 0U;
+          speed_probe_handoff_fast_ramp = false;
+          speed_probe_start_current_a = clampFloat(
+              (float)speed_probe_direction * current_iq_ref,
+              0.0f, fminf(MOTOR_SPEED_STARTUP_IQ_A, speed_probe_iq_limit));
+          /* PI tracking is reset only when RESTART confirms motion. */
+        }
+        else
         {
           motorFinishSpeedPiProbe(5U, t, raw);
           return;
@@ -1550,24 +1711,9 @@ static void motorCommissionOffsetProbe(void)
   }
 }
 
-/* V diagnostic: CURRENT-STEP HYSTERESIS test.
- * The user's def.h settings are kept untouched:
- *   VECTOR_PROBE_ID_A         = 3.5A (already set by user)
- *   VECTOR_PROBE_ANGLE_DEG    = 90deg
- *   VECTOR_PROBE_MAX_MOVE_COUNTS = 250 (already set by user)
- *   VECTOR_PROBE_ANGLE_HOLD_TICKS = 12000 (600ms, already set)
- * The test is strictly OPEN LOOP with respect to rotor position.
- * All stages retain the 20kHz ADC-driven PI and existing safety checks.
- * Extra ~700ms -> 2s alignment + 2.3s test = ~4.3s (<5.5s watchdog).
+/* V current-step hysteresis: constants are centralized in def.h.
+ * The stator vector test and all existing safety checks are unchanged.
  */
-#define VECTOR_HYST_LOW_ID_A                  2.50f
-#define VECTOR_HYST_ID_DOWN_TICKS             2000U    /* 100ms, high -> 2.5A */
-#define VECTOR_HYST_LOW_HOLD_TICKS            12000U   /* 600ms at +90deg, 2.5A */
-#define VECTOR_HYST_T_ID_DOWN_END             (VECTOR_T_HOLD_END + VECTOR_HYST_ID_DOWN_TICKS)
-#define VECTOR_HYST_T_LOW_HOLD_END            (VECTOR_HYST_T_ID_DOWN_END + VECTOR_HYST_LOW_HOLD_TICKS)
-#define VECTOR_HYST_T_RETURN_END              (VECTOR_HYST_T_LOW_HOLD_END + VECTOR_PROBE_ANGLE_RAMP_TICKS)
-#define VECTOR_HYST_T_HOME_END                (VECTOR_HYST_T_RETURN_END + VECTOR_PROBE_HOME_HOLD_TICKS)
-#define VECTOR_HYST_T_TOTAL                   (VECTOR_HYST_T_HOME_END + VECTOR_PROBE_ID_OFF_TICKS)
 
 static void motorCommissionVectorProbe(void)
 {
