@@ -37,11 +37,14 @@ bool encoderInit(void)
   sConfig.IC1Polarity          = TIM_ICPOLARITY_RISING;
   sConfig.IC1Selection         = TIM_ICSELECTION_DIRECTTI;
   sConfig.IC1Prescaler         = TIM_ICPSC_DIV1;
-  sConfig.IC1Filter            = 0;
+  /* Reject narrow glitches on the single-ended quadrature A/B lines.
+   * Filter code 8 samples at fDTS/8, 6 equal samples required.
+   * This does not debounce mechanical oscillation. */
+  sConfig.IC1Filter            = 8;
   sConfig.IC2Polarity          = TIM_ICPOLARITY_RISING;
   sConfig.IC2Selection         = TIM_ICSELECTION_DIRECTTI;
   sConfig.IC2Prescaler         = TIM_ICPSC_DIV1;
-  sConfig.IC2Filter            = 0;
+  sConfig.IC2Filter            = 8;
 
   if (HAL_TIM_Encoder_Init(&htim2, &sConfig) != HAL_OK)
   {
@@ -99,7 +102,7 @@ void encoderUpdateSpeed(float dt)
   prev_count = curr_count;
 
   speed_m = ((float)delta * COUNT_TO_ANGLE) / dt;
-  speed_e = speed_m * MOTOR_POLE_PAIRS;
+  speed_e = ENCODER_ELEC_SIGN * speed_m * MOTOR_POLE_PAIRS;
 }
 
 float encoderGetElectricalAngle(void)
