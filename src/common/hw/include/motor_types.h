@@ -16,7 +16,6 @@ typedef enum
   MOTOR_STATE_IDLE             = 0x00U,
   MOTOR_STATE_ALIGN            = 0x01U,
   MOTOR_STATE_CURRENT_LOOP     = 0x02U,
-  MOTOR_STATE_SPEED_LOOP       = 0x03U,
   MOTOR_STATE_FAULT            = 0x04U,
   MOTOR_STATE_ALIGN_DIAG_DONE  = 0x05U, /* PWM already disabled; diagnostic only */
 } motor_state_t;
