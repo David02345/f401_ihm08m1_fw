@@ -76,6 +76,10 @@ static int32_t speed_probe_prev_10ms = 0;
 static float speed_probe_raw_rpm = 0.0f;
 static float speed_probe_filtered_rpm = 0.0f;
 static float speed_probe_target_rpm = 0.0f;
+static uint32_t speed_profile_start_tick = 0U;
+static float speed_profile_start_rpm = 0.0f;
+static uint8_t speed_profile_segment = 0U;
+static uint8_t speed_profile_stop_steps = 0U;
 static float speed_probe_iq_limit = 0.0f;
 static volatile bool speed_probe_voltage_enabled = false;
 static motor_speed_phase_t speed_probe_phase = MOTOR_SPEED_PHASE_NONE;
@@ -680,7 +684,8 @@ void motorAlign(void)
 
   /* K/L only: validate the static 0deg alignment with an active vector
      excursion before accepting an encoder offset. Other modes untouched. */
-  if (speed_probe_selected && t >= ALIGN_TOTAL_TICKS)
+  if (speed_probe_selected && t >= ALIGN_TOTAL_TICKS &&
+      MOTOR_SPEED_ALIGN_ENABLE_VECTOR_SWEEP != 0U)
   {
     const uint32_t v = t - ALIGN_TOTAL_TICKS;
     const uint32_t v1 = MOTOR_SPEED_ALIGN_RAMP_TICKS;
@@ -818,7 +823,17 @@ void motorAlign(void)
       pwmDisableOutput();
       motor_state = MOTOR_STATE_ALIGN_DIAG_DONE;
     }
-    return;
+    if (MOTOR_SPEED_ALIGN_ENABLE_VECTOR_SWEEP != 0U)
+    {
+      /* The diagnostic sweep will run on the next 20kHz ADC tick. */
+      return;
+    }
+    /* No additional forced excursion: static alignment was stable.
+     * The calibrating encoder offset below uses this measured count.
+     * These are NOT vector-sweep pass results; report separately. */
+    speed_pi_diag.align_vector_skipped = 1U;
+    speed_pi_diag.align_vector_pass = 0U;
+    speed_pi_diag.align_return_count = speed_pi_diag.align_base_count;
   }
   } /* end original 2s static alignment section */
 
@@ -1193,12 +1208,12 @@ static void motorCommissionSpinProbe(void)
  * RUN uses low-gain speed PI; protections are checked in all phases.
  * The 10ms RPM estimate is independent of the legacy UART speed field.
  */
-static const uint32_t speed_probe_sample_ticks[MOTOR_SPEED_PI_SAMPLE_COUNT] = {
-    0U, 200U, 400U, 600U, 800U, 1000U, 1200U, 1400U, 1600U,
-    1800U, 2000U, 2200U, 2400U, 2600U, 2800U, 3000U,
-    3500U, 4000U, 5000U, 6000U, 8000U, 10000U, 12000U,
-    14000U, 16000U, 18000U, 20000U, 24000U, 28000U, 29999U
-};
+/* Dense 10ms samples in first 400ms, then 50ms through full profile. */
+static bool motorSpeedProfileSampleDue(uint32_t u)
+{
+  if (u <= 8000U) return (u % 200U) == 0U;
+  return (u % 1000U) == 0U;
+}
 
 static void motorCaptureSpeedPiSample(uint32_t u, int32_t raw)
 {
@@ -1207,6 +1222,7 @@ static void motorCaptureSpeedPiSample(uint32_t u, int32_t raw)
       &speed_pi_diag.samples[speed_pi_diag.sample_count];
   s->tick = u;
   s->phase = (uint8_t)speed_probe_phase;
+  s->profile_segment = speed_profile_segment;
   s->raw_count = raw;
   s->unwrapped_count = speed_probe_unwrapped;
   s->rpm_raw = speed_probe_raw_rpm;
@@ -1276,6 +1292,10 @@ static void motorCommissionSpeedPiProbe(void)
     speed_probe_filtered_rpm = 0.0f;
     speed_probe_target_rpm = 0.0f;
     speed_probe_phase = MOTOR_SPEED_PHASE_STARTUP;
+    speed_profile_start_tick = 0U;
+    speed_profile_start_rpm = 0.0f;
+    speed_profile_segment = 0U;
+    speed_profile_stop_steps = 0U;
     speed_probe_phase_start_tick = 0U;
     speed_probe_restart_count = 0U;
     speed_probe_start_forward_count = 0;
@@ -1425,18 +1445,64 @@ static void motorCommissionSpeedPiProbe(void)
     {
       /* L: retain legacy 400RPM/s; K's low-speed handoff uses the
        * faster profile latched when STARTUP was confirmed. */
+      /* In RUN, profile reference is generated at 100Hz (same PI tick).
+       * The first RUN tick remains continuous with HANDOFF's reference. */
+      float speed_goal = goal;
+      if (speed_probe_phase == MOTOR_SPEED_PHASE_RUN)
+      {
+        const uint32_t profile_ms =
+            (u - speed_profile_start_tick) / 20U;
+        const uint32_t accel_end = MOTOR_SPEED_PROFILE_ACCEL_MS;
+        const uint32_t hold_end = accel_end + MOTOR_SPEED_PROFILE_HOLD_MS;
+        const uint32_t decel_end = hold_end + MOTOR_SPEED_PROFILE_DECEL_MS;
+        float magnitude;
+        if (profile_ms < accel_end)
+        {
+          speed_profile_segment = 1U;
+          magnitude = speed_profile_start_rpm +
+              (MOTOR_SPEED_PI_GOAL_RPM - speed_profile_start_rpm) *
+              ((float)profile_ms / (float)MOTOR_SPEED_PROFILE_ACCEL_MS);
+        }
+        else if (profile_ms < hold_end)
+        {
+          speed_profile_segment = 2U;
+          magnitude = MOTOR_SPEED_PI_GOAL_RPM;
+        }
+        else if (profile_ms < decel_end)
+        {
+          speed_profile_segment = 3U;
+          magnitude = MOTOR_SPEED_PI_GOAL_RPM *
+              (1.0f - (float)(profile_ms - hold_end) /
+              (float)MOTOR_SPEED_PROFILE_DECEL_MS);
+        }
+        else
+        {
+          speed_profile_segment = 4U;
+          magnitude = 0.0f;
+        }
+        speed_goal = (float)speed_probe_direction * magnitude;
+      }
       const float ramp_rpm_s =
           (speed_probe_phase == MOTOR_SPEED_PHASE_HANDOFF &&
            speed_probe_handoff_fast_ramp) ?
           MOTOR_SPEED_HANDOFF_FAST_RAMP_RPM_PER_S :
           MOTOR_SPEED_PI_RAMP_RPM_PER_S;
       const float increment = ramp_rpm_s * 0.010f;
-      speed_probe_target_rpm += clampFloat(goal - speed_probe_target_rpm,
-                                           -increment, increment);
+      if (speed_probe_phase == MOTOR_SPEED_PHASE_RUN)
+        speed_probe_target_rpm = speed_goal;
+      else
+        speed_probe_target_rpm += clampFloat(goal - speed_probe_target_rpm,
+                                             -increment, increment);
       const float pi_request = piControllerAntiWindup(&pi_spd,
           speed_probe_target_rpm, speed_probe_filtered_rpm, 0.010f);
-      const float bounded_request = clampFloat(pi_request,
+      float bounded_request = clampFloat(pi_request,
                                       -speed_probe_iq_limit, speed_probe_iq_limit);
+      /* Brake and settling must not demand a large reverse current. */
+      if (speed_probe_phase == MOTOR_SPEED_PHASE_RUN &&
+          speed_profile_segment >= 3U)
+        bounded_request = clampFloat(bounded_request,
+            -MOTOR_SPEED_PROFILE_BRAKE_IQ_A,
+            MOTOR_SPEED_PROFILE_BRAKE_IQ_A);
       const bool removing_drive =
           ((float)speed_probe_direction * bounded_request <
            (float)speed_probe_direction * current_iq_ref);
@@ -1496,6 +1562,17 @@ static void motorCommissionSpeedPiProbe(void)
           speed_probe_phase = MOTOR_SPEED_PHASE_RUN;
           speed_pi_diag.handoff_end_tick = u;
           speed_probe_run_stall_steps = 0U;
+          /* Bumpless transfer: start profile from the current speed reference,
+           * not from 0RPM while the rotor is already moving. */
+          speed_profile_start_tick = u;
+          speed_profile_start_rpm = clampFloat(
+              (float)speed_probe_direction * speed_probe_target_rpm,
+              0.0f, MOTOR_SPEED_PI_GOAL_RPM);
+          speed_pi_diag.profile_start_tick = u;
+          speed_pi_diag.profile_initial_rpm =
+              (float)speed_probe_direction * speed_profile_start_rpm;
+          speed_profile_segment = 1U;
+          speed_profile_stop_steps = 0U;
         }
         else if (speed_probe_handoff_stall_steps >=
                      MOTOR_SPEED_HANDOFF_STALL_STEPS)
@@ -1513,7 +1590,8 @@ static void motorCommissionSpeedPiProbe(void)
 
       if (speed_probe_phase == MOTOR_SPEED_PHASE_RUN)
       {
-        if ((float)speed_probe_direction * speed_probe_filtered_rpm < 5.0f)
+        if (speed_profile_segment < 3U &&
+            (float)speed_probe_direction * speed_probe_filtered_rpm < 5.0f)
         {
           if (speed_probe_run_stall_steps < MOTOR_SPEED_RUN_STALL_STEPS)
             speed_probe_run_stall_steps++;
@@ -1545,6 +1623,8 @@ static void motorCommissionSpeedPiProbe(void)
           speed_probe_handoff_run_confirm = 0U;
           speed_probe_handoff_stall_steps = 0U;
           speed_probe_handoff_fast_ramp = false;
+          speed_profile_segment = 0U;
+          speed_profile_stop_steps = 0U;
           speed_probe_start_current_a = clampFloat(
               (float)speed_probe_direction * current_iq_ref,
               0.0f, fminf(MOTOR_SPEED_STARTUP_IQ_A, speed_probe_iq_limit));
@@ -1555,6 +1635,36 @@ static void motorCommissionSpeedPiProbe(void)
           motorFinishSpeedPiProbe(5U, t, raw);
           return;
         }
+      }
+    }
+    /* After decel, require near-zero measured RPM for 30ms before PWM off.
+     * A fixed timeout prevents indefinite motor energization. */
+    if (speed_probe_phase == MOTOR_SPEED_PHASE_RUN &&
+        speed_profile_segment == 4U)
+    {
+      const uint32_t profile_ms =
+          (u - speed_profile_start_tick) / 20U;
+      const uint32_t decel_end = MOTOR_SPEED_PROFILE_ACCEL_MS +
+          MOTOR_SPEED_PROFILE_HOLD_MS + MOTOR_SPEED_PROFILE_DECEL_MS;
+      if (fabsf(speed_probe_filtered_rpm) <= MOTOR_SPEED_PROFILE_STOP_RPM &&
+          fabsf(speed_probe_raw_rpm) <= MOTOR_SPEED_PROFILE_STOP_RPM + 5.0f)
+      {
+        if (speed_profile_stop_steps < MOTOR_SPEED_PROFILE_STOP_STEPS)
+          speed_profile_stop_steps++;
+      }
+      else
+        speed_profile_stop_steps = 0U;
+      if (speed_profile_stop_steps >= MOTOR_SPEED_PROFILE_STOP_STEPS)
+      {
+        motorCaptureSpeedPiSample(u, raw);
+        motorFinishSpeedPiProbe(1U, t, raw);
+        return;
+      }
+      if (profile_ms >= decel_end + MOTOR_SPEED_PROFILE_STOP_TIMEOUT_MS)
+      {
+        motorCaptureSpeedPiSample(u, raw);
+        motorFinishSpeedPiProbe(11U, t, raw);
+        return;
       }
     }
     current_iq_ref = clampFloat(current_iq_ref,
@@ -1574,13 +1684,13 @@ static void motorCommissionSpeedPiProbe(void)
   if (motorAbsCount(speed_probe_unwrapped) >= MOTOR_SPEED_PI_MAX_TRAVEL_COUNTS)
   { motorFinishSpeedPiProbe(6U, t, raw); return; }
   if (u >= MOTOR_SPEED_PI_RUN_TICKS)
-  { motorFinishSpeedPiProbe(1U, t, raw); return; }
+  { motorFinishSpeedPiProbe(11U, t, raw); return; }
 
   motorCurrentLoop(0.0f, current_iq_ref, theta);
   if (motor_state == MOTOR_STATE_FAULT) return;
 
   if (speed_pi_diag.sample_count < MOTOR_SPEED_PI_SAMPLE_COUNT &&
-      u == speed_probe_sample_ticks[speed_pi_diag.sample_count])
+      motorSpeedProfileSampleDue(u))
     motorCaptureSpeedPiSample(u, raw);
 
   closed_loop_ticks++;
@@ -2116,9 +2226,15 @@ void motorLowSpeedTask(void)
 {
   /* The injected callback normally ends the probe after ~3 seconds.
      Independently cut the power stage if those ADC interrupts stop. */
+  /* The previous 5500ms watchdog included the 2s alignment phase and
+   * incorrectly cut off the 4.0s portfolio profile during its hold segment.
+   * Select a bounded whole-test watchdog for K/L only; preserve the legacy
+   * watchdog for other motor tests and retain all fast current/speed guards. */
+  const uint32_t timeout_ms = speed_probe_selected ?
+      MOTOR_SPEED_PI_WATCHDOG_MS : POSITION_WATCHDOG_MS;
   if ((motor_state == MOTOR_STATE_ALIGN ||
        motor_state == MOTOR_STATE_CURRENT_LOOP) &&
-      (uint32_t)(HAL_GetTick() - probe_start_ms) > POSITION_WATCHDOG_MS)
+      (uint32_t)(HAL_GetTick() - probe_start_ms) > timeout_ms)
   {
     motorSetFault(MOTOR_FAULT_TEST_TIMEOUT);
     return;

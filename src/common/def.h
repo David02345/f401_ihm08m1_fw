@@ -324,15 +324,37 @@
 #define MOTOR_SPEED_PI_OC_MARGIN_A         0.25f
 #define MOTOR_SPEED_PI_V_LIMIT_V           4.50f
 #define MOTOR_SPEED_PI_TICKS_PER_STEP      200U    /* 10 ms at 20 kHz */
-#define MOTOR_SPEED_PI_RUN_TICKS           30000U  /* 1.5 s after Id zero */
+#define MOTOR_SPEED_PI_RUN_TICKS           110000U /* 5.5s absolute safety cutoff after Id zero */
+/* Whole K/L sequence watchdog: static align 2s + Id release 0.25s +
+ * at most 5.5s speed-profile controller + 0.5s scheduling margin.
+ * Keep legacy 5.5s watchdog for all other test types. */
+#define MOTOR_SPEED_PI_WATCHDOG_MS \
+  ((ALIGN_TOTAL_TICKS + MOTOR_SPEED_PI_START_TICK + MOTOR_SPEED_PI_RUN_TICKS) / 20U + 500U)
 #define MOTOR_SPEED_PI_START_TICK          TORQUE_PROBE_START_TICK
 #define MOTOR_SPEED_PI_MAX_RPM             500.0f
-#define MOTOR_SPEED_PI_MAX_TRAVEL_COUNTS   24000   /* 6 mechanical revolutions */
+#define MOTOR_SPEED_PI_MAX_TRAVEL_COUNTS  65000   /* 16.25 mechanical rev; emergency travel cut */
 #define MOTOR_SPEED_PI_REVERSE_COUNTS      400
 #define MOTOR_SPEED_PI_STALL_TICKS         6000U   /* 300 ms */
 #define MOTOR_SPEED_PI_STALL_COUNTS        20
 #define MOTOR_SPEED_PI_FILTER_ALPHA        0.60f
-#define MOTOR_SPEED_PI_SAMPLE_COUNT        30U
+#define MOTOR_SPEED_PI_SAMPLE_COUNT       150U
+/**
+  * @}
+  */
+
+/** @defgroup FOC Portfolio Speed Profile (starts on RUN entry)
+  * 500ms ramp from handoff RPM to 180RPM, 3000ms hold, 500ms ramp to 0.
+  * 500ms maximum zero-speed settling; automatic PWM off on success/failure.
+  * The ramp starts from the nonzero HANDOFF speed, NOT from standstill.
+  * @{
+  */
+#define MOTOR_SPEED_PROFILE_ACCEL_MS         500U
+#define MOTOR_SPEED_PROFILE_HOLD_MS         3000U
+#define MOTOR_SPEED_PROFILE_DECEL_MS         500U
+#define MOTOR_SPEED_PROFILE_STOP_TIMEOUT_MS  500U
+#define MOTOR_SPEED_PROFILE_STOP_RPM          10.0f
+#define MOTOR_SPEED_PROFILE_STOP_STEPS        3U  /* 3 x 10ms */
+#define MOTOR_SPEED_PROFILE_BRAKE_IQ_A        1.20f /* limited braking at/near zero */
 /**
   * @}
   */
@@ -377,6 +399,11 @@
 /** @defgroup FOC Speed Alignment Validation - K/L
   * @{
   */
+/* Diagnostic sweep is optional, not a requirement for encoder offset
+ * calibration. Portfolio pilot: use original 2A static alignment with its
+ * existing settle gate, then bounded startup. Set 1U to run the old
+ * 3.5A 0->90->0 sweep on every K/L test again. */
+#define MOTOR_SPEED_ALIGN_ENABLE_VECTOR_SWEEP 0U
 #define MOTOR_SPEED_ALIGN_ID_A           3.50f
 #define MOTOR_SPEED_ALIGN_RAMP_TICKS     2000U  /* 100ms */
 #define MOTOR_SPEED_ALIGN_UP_TICKS       6000U  /* 300ms */

@@ -141,6 +141,7 @@ typedef struct
 {
   uint32_t tick;
   uint8_t phase; /* STARTUP=1, HANDOFF=2, RUN=3, RESTART=4 */
+  uint8_t profile_segment; /* 0=pre-run, 1=accel, 2=hold, 3=decel, 4=stop */
   int32_t raw_count, unwrapped_count;
   float rpm_raw, rpm_filtered, rpm_ref, iq_ref, iq_meas;
   float id_meas, vd, vq, vmag;
@@ -150,20 +151,25 @@ typedef struct
 {
   uint8_t selected;
   int8_t direction;
-  uint8_t result; /* 1=time,2=align,3=overspeed,4=reverse,5=stall,6=travel,7=prestart,8=startup timeout,9=align check,10=restart timeout */
+  uint8_t result; /* 1=profile stopped,2=align,3=overspeed,4=reverse,5=stall,6=travel,7=prestart,8=startup timeout,9=align check,10=restart timeout,11=stop timeout */
   uint8_t sample_count;
   uint8_t last_phase;
   int32_t align_count, zero_count, stop_raw, total_counts;
   uint32_t startup_end_tick, handoff_end_tick;
+  uint32_t profile_start_tick;
+  float profile_initial_rpm;
   uint8_t restart_count;
   uint32_t restart_start_tick, restart_recovered_tick;
   int32_t align_base_count, align_plus_count, align_return_count;
   int32_t align_plus_delta, align_return_delta, align_peak_delta;
   uint8_t align_vector_pass;
-  /* Diagnostic only; no effect on control. Masks: 1=PEAK, 2=RESPONSE,
-     4=RETURN_RESIDUAL, 8=FINAL_SETTLE, 16=STATIC_SETTLE. */
+  uint8_t align_vector_skipped; /* 1=optional 3.5A sweep not run */
+  /* Alignment fail mask (unchanged proven K/L gate):
+     0x01 MAX_EXCURSION, 0x02 MIN_RESPONSE, 0x04 RETURN_RESIDUAL,
+     0x08 FINAL_SETTLE, 0x10 STATIC_SETTLE. */
   uint8_t align_fail_mask;
-  uint8_t align_fail_stage; /* 0=STATIC,1=RAMP,2=UP,3=HOLD,4=BACK,5=SETTLE */
+  /* 0 STATIC, 1 RAMP, 2 UP, 3 HOLD_90, 4 BACK, 5 SETTLE. */
+  uint8_t align_fail_stage;
   uint8_t align_plus_valid;
   uint8_t align_return_valid; /* 0 on an early cutoff: return_count is stop-count */
   uint32_t align_fail_v_tick; /* ticks since end of original 2s static align */

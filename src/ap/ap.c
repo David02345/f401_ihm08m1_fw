@@ -70,7 +70,7 @@ void apMain(void)
   uartPrintf(_DEF_UART1, "Encoder monitor every 250ms; P=print, ?=help.\r\n");
   uartPrintf(_DEF_UART1, "POSITION FOC: 2A align (2s) -> Id=0 + settle -> +8/0/-8/0 count targets.\r\n");
   uartPrintf(_DEF_UART1, "POSITION FOC: filtered PD @1kHz, Iq <= 0.5A, auto PWM OFF, raw safety checks.\r\n");
-  uartPrintf(_DEF_UART1, "F/R=FOC +/-0.30A; T/Y=FOC +/-3.50A 250cnt; G/H=FOC +/-3.50A 1rev; K/L=STARTUP+SPEED PI +/-180RPM; V=vector; S=PD.\r\n");
+  uartPrintf(_DEF_UART1, "F/R=FOC +/-0.30A; T/Y=FOC +/-3.50A 250cnt; G/H=FOC +/-3.50A 1rev; K/L=TRAPEZOID SPEED +/-180RPM; V=vector; S=PD.\r\n");
   uartPrintf(_DEF_UART1, "T/Y: 2A align -> Id=0 settle -> Iq 0->+/-3.5A->0 (100/150/100ms); move limit=250 counts.\r\n");
   uartPrintf(_DEF_UART1, "K/L: 2A align -> startup Iq ramp -> smooth handoff -> +/-180RPM speed PI (1.5s).\r\n");
   uartPrintf(_DEF_UART1,
@@ -296,14 +296,15 @@ void apMain(void)
         if (motorGetSpeedPiProbeDiag(q))
         {
           static const char * const results[] = {
-              "UNFINISHED", "TIME COMPLETE", "ALIGN UNSTABLE",
+              "UNFINISHED", "PROFILE STOPPED", "ALIGN UNSTABLE",
               "OVERSPEED CUT", "WRONG DIRECTION CUT", "STALL CUT",
               "TRAVEL CUT", "PRE-START EXCURSION CUT", "STARTUP TIMEOUT",
-              "ALIGN VECTOR CHECK FAILED", "RESTART TIMEOUT"
+              "ALIGN VECTOR CHECK FAILED", "RESTART TIMEOUT",
+              "PROFILE STOP TIMEOUT"
           };
           const uint8_t rc = q->result;
           uartPrintf(_DEF_UART1,
-              "\r\n=== ENCODER FOC SPEED PI (PWM OFF) ===\r\n");
+              "\r\n=== ENCODER FOC TRAPEZOID SPEED (PWM OFF) ===\r\n");
           uartPrintf(_DEF_UART1,
               "direction=%+d target_signed_rpm=%ld iq_cap=%ldmA "
               "v_cap=%ldmV (speed only), align=%ld zero=%ld stop=%ld "
@@ -323,6 +324,21 @@ void apMain(void)
               (unsigned int)rc,
               (rc < sizeof(results)/sizeof(results[0])) ? results[rc] : "UNKNOWN",
               (unsigned int)motorGetFault());
+          if (q->align_vector_skipped != 0U)
+          {
+            uartPrintf(_DEF_UART1,
+                "ALIGN_CHECK: mode=STATIC_ONLY vector_sweep=SKIPPED "
+                "static_pass=%u static_peak=%ld static_limit=%u\r\n",
+                (unsigned int)(q->align_static_settle_peak_counts <= ALIGN_SETTLE_MAX_COUNTS),
+                (long)q->align_static_settle_peak_counts,
+                (unsigned int)ALIGN_SETTLE_MAX_COUNTS);
+            uartPrintf(_DEF_UART1,
+                "ALIGN_STATIC: final_count=%ld (encoder offset installed; "
+                "no 3.5A rotation check)\r\n",
+                (long)q->align_base_count);
+          }
+          else
+          {
           uartPrintf(_DEF_UART1,
               "ALIGN_CHECK: pass=%u reason=%s mask=0x%02X stage=%s v_ms=%lu\r\n",
               (unsigned int)q->align_vector_pass,
@@ -350,6 +366,7 @@ void apMain(void)
               (long)MOTOR_SPEED_ALIGN_MAX_EXCURSION_COUNTS,
               (long)MOTOR_SPEED_ALIGN_MAX_RESIDUAL_COUNTS,
               (long)MOTOR_SPEED_ALIGN_LAST_SETTLE_COUNTS);
+          }
           if (q->align_fail_mask != 0U)
             uartPrintf(_DEF_UART1,
                 "ALIGN_FAIL_FLAGS: excursion=%u response=%u residual=%u settle=%u static=%u\r\n",
@@ -374,14 +391,25 @@ void apMain(void)
               (unsigned long)(q->restart_start_tick / 20U),
               (unsigned long)(q->restart_recovered_tick / 20U));
           uartPrintf(_DEF_UART1,
-              "t_ms,phase,raw_count,unwrapped_count,rpm_raw,rpm_lpf,rpm_ref,"
+              "PROFILE: start_ms=%lu start_ref_rpm=%ld accel_ms=%u "
+              "hold_ms=%u decel_ms=%u stop_timeout_ms=%u "
+              "(profile starts at RUN, from nonzero handoff RPM)\r\n",
+              (unsigned long)(q->profile_start_tick / 20U),
+              (long)q->profile_initial_rpm,
+              (unsigned int)MOTOR_SPEED_PROFILE_ACCEL_MS,
+              (unsigned int)MOTOR_SPEED_PROFILE_HOLD_MS,
+              (unsigned int)MOTOR_SPEED_PROFILE_DECEL_MS,
+              (unsigned int)MOTOR_SPEED_PROFILE_STOP_TIMEOUT_MS);
+          uartPrintf(_DEF_UART1,
+              "t_ms,phase,profile_segment,raw_count,unwrapped_count,rpm_raw,rpm_lpf,rpm_ref,"
               "iq_ref_mA,iq_meas_mA,id_meas_mA,vd_mV,vq_mV,vmag_mV\r\n");
           for (uint32_t i=0U; i<q->sample_count && i<MOTOR_SPEED_PI_SAMPLE_COUNT; ++i)
           {
             const motor_speed_pi_sample_t *s = &q->samples[i];
             uartPrintf(_DEF_UART1,
-                "%lu,%u,%ld,%+ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld\r\n",
+                "%lu,%u,%u,%ld,%+ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld\r\n",
                 (unsigned long)(s->tick / 20U), (unsigned int)s->phase,
+                (unsigned int)s->profile_segment,
                 (long)s->raw_count,
                 (long)s->unwrapped_count, (long)s->rpm_raw,
                 (long)s->rpm_filtered, (long)s->rpm_ref,
@@ -402,7 +430,7 @@ void apMain(void)
         if (motorGetSpinProbeDiag(q))
         {
           static const char * const results[] = {
-              "UNFINISHED", "TIME COMPLETE", "ALIGN UNSTABLE",
+              "UNFINISHED", "PROFILE STOPPED", "ALIGN UNSTABLE",
               "ONE REV CUT", "RPM CUT", "WRONG DIRECTION CUT",
               "STALL CUT", "PRE-START EXCURSION CUT"};
           const uint8_t rc = q->result;
@@ -627,7 +655,8 @@ void apMain(void)
             uartPrintf(_DEF_UART1,
                 "START ENCODER FOC STARTUP+SPEED PI sign=%+d goal=%ldRPM "
                 "Iq_limit=%ldmA voltage_limit=%ldmV (speed mode only) "
-                "startup target=3000mA, handoff, run=1500ms; auto PWM OFF\r\n",
+                "startup target=3000mA; handoff; RUN profile 500/3000/500ms; "
+                "stop check <=500ms; auto PWM OFF\r\n",
                 (int)sign, (long)((float)sign * MOTOR_SPEED_PI_GOAL_RPM),
                 (long)(fminf(MOTOR_SPEED_PI_IQ_MAX_A,
                     CURRENT_TEST_OC_LIMIT_A - MOTOR_SPEED_PI_OC_MARGIN_A)*1000.0f),
